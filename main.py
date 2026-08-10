@@ -205,7 +205,7 @@ class CalcIn(BaseModel):
 # ---------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz():
     return {"status": "ok"}
 
