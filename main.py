@@ -309,163 +309,226 @@ def best_split(body: CalcIn):
     }
 
 # ---------------------------------------------------------------
-# Frontend (single page)
+# SHARED CSS (mirrors the Tkinter COLORS/FONT palette exactly)
 # ---------------------------------------------------------------
-INDEX_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Export Clothing Calculator</title>
-<style>
-  :root{--bg:#0f1420;--card:#1a2236;--input:#232c42;--accent:#c9a24b;--text:#eef1f7;--dim:#8b93a8;--good:#3ecf8e;--bad:#e35d6a;--purple:#8e6fce;--border:#2a3450;}
-  body{background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif;margin:0;padding:20px;}
-  h1{color:var(--accent);font-size:22px;}
-  h3{margin-top:0;}
-  .row{display:flex;gap:16px;flex-wrap:wrap;}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;flex:1;min-width:300px;}
-  button{background:var(--accent);color:#111318;border:none;border-radius:6px;padding:8px 14px;font-weight:bold;cursor:pointer;margin:2px;}
-  button.alt{background:var(--input);color:var(--text);}
-  button.purple{background:var(--purple);color:#fff;}
-  button.good{background:var(--good);color:#0a1f14;}
-  button.bad{background:var(--bad);color:#2a0a0d;}
-  input,select{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 6px;margin:2px;}
-  .item{display:flex;align-items:center;justify-content:space-between;background:var(--input);border-radius:6px;padding:8px;margin:4px 0;flex-wrap:wrap;gap:6px;}
-  .qty{display:flex;align-items:center;gap:6px;}
-  pre{white-space:pre-wrap;font-family:Consolas,monospace;font-size:13px;}
-  .profit{color:var(--good);font-weight:bold;}
-  .loss{color:var(--bad);font-weight:bold;}
-  .dim{color:var(--dim);}
-  #configPanel{display:none;}
-  .settingsGrid{display:grid;grid-template-columns:1fr 120px;gap:6px;align-items:center;max-width:400px;}
-  .itemForm{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;}
-  .itemForm input{width:110px;}
-</style>
-</head>
-<body>
-<h1>⚜ Clothing Export Business — Calculator</h1>
-<div>
-  <button class="purple" onclick="toggleCurrency()">💱 Currency: <span id="curLabel">USD</span></button>
-  <button class="good" onclick="togglePriceMode()">🏷 Price mode: <span id="modeLabel">Retail</span></button>
-  <button class="alt" onclick="toggleConfig()">⚙ Config</button>
-  <label style="margin-left:12px;"><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance</label>
-</div>
+BASE_CSS = """
+:root{
+  --bg:#0f1420; --card:#1a2236; --input:#232c42; --accent:#c9a24b; --accent-hover:#e0ba63;
+  --text:#eef1f7; --dim:#8b93a8; --success:#3ecf8e; --danger:#e35d6a; --purple:#8e6fce; --border:#2a3450;
+}
+*{box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI",Arial,sans-serif;margin:0;min-height:100vh;}
+.topbar{display:flex;align-items:center;padding:18px 20px 10px 20px;gap:18px;}
+.topbar h1{font-size:20px;margin:0;font-weight:700;}
+.topbar .right{margin-left:auto;display:flex;gap:10px;}
+button{border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:inherit;padding:10px 18px;font-size:14px;}
+button.accent{background:var(--accent);color:#111318;}
+button.accent:hover{background:var(--accent-hover);}
+button.alt{background:var(--input);color:var(--text);}
+button.purple{background:var(--purple);color:#fff;}
+button.success{background:var(--success);color:#0a1f14;}
+button.danger{background:var(--danger);color:#2a0a0d;}
+button.small{padding:6px 12px;font-size:13px;}
+button.icon-btn{width:34px;height:34px;padding:0;font-size:16px;border-radius:6px;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;margin:0 20px 20px 20px;padding:16px;}
+.card h3{color:var(--accent);margin:0 0 12px 0;font-size:14px;font-weight:700;}
+.home-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;text-align:center;}
+.home-wrap .glyph{font-size:34px;color:var(--accent);margin-bottom:10px;}
+.home-wrap h1{font-size:26px;margin:4px 0;}
+.home-wrap .sub{color:var(--dim);margin-bottom:36px;}
+.home-btn{width:280px;padding:18px;font-size:15px;margin:8px 0;border-radius:8px;}
+.home-btn.cfg{background:var(--card);color:var(--text);border:1px solid var(--accent);}
+.home-btn.calc{background:var(--accent);color:#111318;}
+table{width:100%;border-collapse:collapse;}
+th{color:var(--accent);text-align:center;font-size:13px;padding:10px 8px;background:var(--input);}
+td{text-align:center;font-size:13px;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;}
+tr.selected td{background:var(--accent);color:#111318;}
+tr:nth-child(even) td{background:rgba(255,255,255,0.02);}
+tr.selected:nth-child(even) td{background:var(--accent);}
+.tbl-scroll{max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;}
+.btn-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;}
+.settings-grid{display:grid;grid-template-columns:1fr 140px;gap:10px;max-width:520px;align-items:center;}
+.settings-grid label{color:var(--dim);font-size:13px;}
+.settings-grid input{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:inherit;}
+.note{color:var(--dim);font-size:12px;font-style:italic;margin-top:10px;}
+.mode-banner{text-align:center;font-weight:700;padding:6px 0 12px 0;}
+.main-row{display:flex;gap:16px;margin:0 20px 16px 20px;height:320px;}
+.cart-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow-y:auto;padding:10px;}
+.result-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-y:auto;}
+.season-header{color:var(--accent);font-weight:700;font-size:13px;margin:12px 0 6px 4px;}
+.item-row{display:flex;align-items:center;background:var(--input);border-radius:6px;padding:8px 10px;margin:4px 0;}
+.item-row .name{flex:2;font-size:13px;}
+.item-row .design{flex:1;color:var(--dim);font-size:13px;}
+.item-row .sell{flex:1;color:var(--accent);font-weight:700;font-size:13px;}
+.item-row .qtybox{display:flex;align-items:center;gap:8px;}
+.item-row .qtybox span{min-width:18px;text-align:center;color:var(--accent);font-weight:700;}
+.center-btns{display:flex;justify-content:center;gap:10px;margin:12px 20px;}
+.insurance-row{text-align:center;margin-bottom:10px;font-size:13px;color:var(--text);}
+pre.output{white-space:pre-wrap;font-family:Consolas,monospace;font-size:12.5px;margin:0;}
+.profit{color:var(--success);font-weight:700;}
+.loss{color:var(--danger);font-weight:700;}
+.dim{color:var(--dim);}
+.accent-text{color:var(--accent);}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:50;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:22px;width:320px;}
+.modal h3{margin-top:0;color:var(--text);}
+.modal .note{margin-bottom:12px;}
+.modal label{display:block;font-size:13px;color:var(--text);margin:10px 0 4px 0;}
+.modal input,.modal select{width:100%;background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:inherit;}
+.modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;}
+"""
 
-<div class="card" id="configPanel" style="margin-top:14px;">
-  <h3>⚙ Configuration</h3>
-  <b>Add / Edit Item</b> (prices entered in <span id="curLabel2">USD</span>)
-  <div class="itemForm">
-    <input id="f_name" placeholder="Name">
-    <select id="f_season"><option>Winter</option><option>All-Year</option><option>Summer</option></select>
-    <input id="f_retail" placeholder="Retail" type="number" step="0.01">
-    <input id="f_distributor" placeholder="Distributor" type="number" step="0.01">
-    <input id="f_prod" placeholder="Prod cost" type="number" step="0.01">
-    <input id="f_weight" placeholder="Weight kg" type="number" step="0.01">
-    <button onclick="saveItemForm()">💾 Save Item</button>
-    <button class="alt" onclick="clearItemForm()">Clear</button>
-  </div>
-  <div id="itemAdminList"></div>
+NAV_JS = """
+function getCurrency(){ return localStorage.getItem('rc_currency') || 'USD'; }
+function setCurrency(v){ localStorage.setItem('rc_currency', v); }
+function getPriceMode(){ return localStorage.getItem('rc_price_mode') || 'retail'; }
+function setPriceMode(v){ localStorage.setItem('rc_price_mode', v); }
+function goHome(){ window.location.href = '/'; }
+"""
 
-  <hr style="border-color:var(--border);margin:16px 0;">
-  <b>Settings</b> (always in USD / decimal, regardless of display currency)
-  <div class="settingsGrid" id="settingsGrid"></div>
-  <button onclick="saveSettings()" style="margin-top:8px;">💾 Save Settings</button>
-</div>
+def page_shell(title, body, extra_script=""):
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title><style>{BASE_CSS}</style></head>
+<body>{body}
+<script>{NAV_JS}
+{extra_script}
+</script>
+</body></html>"""
 
-<div class="row" style="margin-top:14px;">
-  <div class="card" id="itemsCard"><h3>Items</h3><div id="itemsList"></div></div>
-  <div class="card"><h3>Order Summary</h3><pre id="resultBox">Select quantities and press Calculate.</pre></div>
-</div>
-<div style="margin-top:10px;">
-  <button onclick="calculate()">▶ Calculate</button>
-  <button class="purple" onclick="bestSplit()">📦 Best Split</button>
-</div>
-<div class="card" style="margin-top:14px;"><h3>📦 Order Split Analysis</h3><pre id="splitBox" class="dim">Calculate first, then Best Split.</pre></div>
+# ---------------------------------------------------------------
+# HOME PAGE
+# ---------------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+def home():
+    body = """
+    <div class="home-wrap">
+      <div class="glyph">⚜</div>
+      <h1>Clothing Export Business</h1>
+      <div class="sub">Pakistan &rarr; USA margin &amp; shipping calculator</div>
+      <button class="home-btn cfg" onclick="window.location.href='/config'">⚙&nbsp;&nbsp;Configuration</button>
+      <button class="home-btn calc" onclick="window.location.href='/calculator'">🧮&nbsp;&nbsp;Calculator</button>
+    </div>
+    """
+    return page_shell("Export Clothing Business Calculator", body)
 
-<script>
+# ---------------------------------------------------------------
+# CONFIG PAGE
+# ---------------------------------------------------------------
+@app.get("/config", response_class=HTMLResponse)
+def config_page():
+    body = """
+    <div class="topbar">
+      <button class="alt small" onclick="goHome()">&larr; Home</button>
+      <h1>Configuration</h1>
+      <div class="right">
+        <button class="purple" id="curBtn" onclick="toggleCurrency()">&#128176; <span id="curLabel">USD</span></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Item Catalog</h3>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr>
+            <th>Name</th><th>Season</th>
+            <th id="thRetail">Retail($)</th><th id="thDistrib">Distrib($)</th><th id="thProd">Prod($)</th>
+            <th>Weight(kg)</th>
+          </tr></thead>
+          <tbody id="itemRows"></tbody>
+        </table>
+      </div>
+      <div class="btn-row">
+        <button class="success" onclick="openAddModal()">+ Add Item</button>
+        <button class="alt" onclick="openEditModal()">&#9998; Edit Selected</button>
+        <button class="danger" onclick="removeSelected()">&#10005; Remove Selected</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Shipping / Remittance / Duty / Tax Settings</h3>
+      <div class="settings-grid" id="settingsGrid"></div>
+      <div class="note">Shipping/duty/tax settings always entered in USD/decimal, regardless of display currency above.</div>
+      <div style="margin-top:14px;"><button class="accent" onclick="saveSettings()">&#128190; Save Settings</button></div>
+    </div>
+
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <h3 id="modalTitle">Add Item</h3>
+        <div class="note" id="modalNote"></div>
+        <label>Name</label><input id="f_name">
+        <label>Season</label>
+        <select id="f_season"><option>Winter</option><option>All-Year</option><option>Summer</option></select>
+        <label>Retail price (consumer)</label><input id="f_retail" type="number" step="0.01">
+        <label>Distributor price (B2B)</label><input id="f_distributor" type="number" step="0.01">
+        <label>Production cost</label><input id="f_prod" type="number" step="0.01">
+        <label>Weight (kg)</label><input id="f_weight" type="number" step="0.01">
+        <div class="actions">
+          <button class="alt" onclick="closeModal()">Cancel</button>
+          <button class="accent" onclick="saveItemModal()">Save</button>
+        </div>
+      </div>
+    </div>
+    """
+    script = """
 let STATE = null;
-let currency = "USD";
-let priceMode = "retail";
-let quantities = {};
+let editingName = null;
+let selectedName = null;
 const SETTINGS_LABELS = {
   duty_rate: "Customs duty rate (0-1)",
-  transfer_multiplier: "Transfer value multiplier",
-  tax_rate: "Export tax rate (0-1)",
-  split: "Your split of margin (0-1)",
+  transfer_multiplier: "Transfer value multiplier (batch duty basis)",
+  tax_rate: "Export tax rate on your share (0-1)",
+  split: "Your split of gross margin (0-1)",
   remit_loss: "Remittance/FX loss (0-1)",
   pkr_per_usd: "PKR per USD rate",
-  insurance_rate: "TCS insurance rate (0-1)",
+  insurance_rate: "TCS insurance rate (0-1, official range 0.005-0.02)",
 };
 
-async function loadState() {
+function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
+function conv(usd){ return getCurrency() === "PKR" ? usd * STATE.settings.pkr_per_usd : usd; }
+function fmtNum(usd){
+  const v = conv(usd);
+  return getCurrency() === "PKR" ? v.toLocaleString(undefined,{maximumFractionDigits:0}) : v.toFixed(2);
+}
+
+async function loadState(){
   const r = await fetch('/api/state');
   STATE = await r.json();
-  renderItems();
-  renderConfig();
+  document.getElementById('curLabel').innerText = getCurrency();
+  renderTable();
+  renderSettings();
 }
 
-function fmt(usdVal) {
-  const val = currency === "PKR" ? usdVal * STATE.settings.pkr_per_usd : usdVal;
-  return currency === "PKR" ? "Rs " + val.toLocaleString(undefined,{maximumFractionDigits:0})
-                             : "$" + val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function toggleCurrency(){
+  setCurrency(getCurrency() === "USD" ? "PKR" : "USD");
+  document.getElementById('curLabel').innerText = getCurrency();
+  renderTable();
 }
 
-function toggleCurrency() {
-  currency = currency === "USD" ? "PKR" : "USD";
-  document.getElementById('curLabel').innerText = currency;
-  document.getElementById('curLabel2').innerText = currency;
-  renderItems();
-}
-function togglePriceMode() {
-  priceMode = priceMode === "retail" ? "distributor" : "retail";
-  document.getElementById('modeLabel').innerText = priceMode === "retail" ? "Retail" : "Distributor";
-  renderItems();
-}
-function toggleConfig() {
-  const p = document.getElementById('configPanel');
-  p.style.display = p.style.display === "none" || !p.style.display ? "block" : "none";
-}
-
-function renderItems() {
-  const seasons = ["Winter","All-Year","Summer"];
-  const div = document.getElementById('itemsList');
-  div.innerHTML = "";
-  seasons.forEach(season => {
-    const items = STATE.items.filter(i => i.season === season);
-    if (!items.length) return;
-    const h = document.createElement('div');
-    h.innerHTML = "<b style='color:var(--accent)'>" + season + "</b>";
-    div.appendChild(h);
-    items.forEach(it => {
-      const price = priceMode === "retail" ? it.retail : it.distributor;
-      const qty = quantities[it.name] || 0;
-      const row = document.createElement('div');
-      row.className = "item";
-      row.innerHTML = `
-        <span>${it.name}</span>
-        <span class="dim">${fmt(it.prod)}</span>
-        <span style="color:var(--accent);font-weight:bold;">${fmt(price)}</span>
-        <span class="qty">
-          <button class="alt" onclick="changeQty('${it.name}',-1)">−</button>
-          <span id="q_${it.name}">${qty}</span>
-          <button onclick="changeQty('${it.name}',1)">+</button>
-        </span>`;
-      div.appendChild(row);
-    });
+function renderTable(){
+  const s = sym();
+  document.getElementById('thRetail').innerText = `Retail(${s})`;
+  document.getElementById('thDistrib').innerText = `Distrib(${s})`;
+  document.getElementById('thProd').innerText = `Prod(${s})`;
+  const tbody = document.getElementById('itemRows');
+  tbody.innerHTML = "";
+  STATE.items.forEach(it => {
+    const tr = document.createElement('tr');
+    if (it.name === selectedName) tr.className = 'selected';
+    tr.onclick = () => { selectedName = it.name; renderTable(); };
+    tr.innerHTML = `<td>${it.name}</td><td>${it.season}</td>
+      <td>${fmtNum(it.retail)}</td><td>${fmtNum(it.distributor)}</td>
+      <td>${fmtNum(it.prod)}</td><td>${it.weight}</td>`;
+    tbody.appendChild(tr);
   });
 }
 
-function changeQty(name, delta) {
-  quantities[name] = Math.max(0, (quantities[name] || 0) + delta);
-  document.getElementById('q_' + name).innerText = quantities[name];
-}
-
-// ---------- CONFIG PANEL ----------
-function renderConfig() {
+function renderSettings(){
   const grid = document.getElementById('settingsGrid');
   grid.innerHTML = "";
   Object.keys(SETTINGS_LABELS).forEach(key => {
-    const label = document.createElement('div');
+    const label = document.createElement('label');
     label.innerText = SETTINGS_LABELS[key];
     const input = document.createElement('input');
     input.type = "number"; input.step = "any"; input.id = "s_" + key;
@@ -473,130 +536,252 @@ function renderConfig() {
     grid.appendChild(label);
     grid.appendChild(input);
   });
-
-  const list = document.getElementById('itemAdminList');
-  list.innerHTML = "";
-  STATE.items.forEach(it => {
-    const row = document.createElement('div');
-    row.className = "item";
-    row.innerHTML = `<span>${it.name} (${it.season})</span>
-      <span class="dim">R:${it.retail} D:${it.distributor} P:${it.prod} W:${it.weight}kg</span>
-      <span>
-        <button class="alt" onclick='editItemForm(${JSON.stringify(it)})'>✎ Edit</button>
-        <button class="bad" onclick="deleteItem('${it.name}')">✕ Remove</button>
-      </span>`;
-    list.appendChild(row);
-  });
 }
 
-function clearItemForm() {
-  document.getElementById('f_name').value = "";
-  document.getElementById('f_retail').value = "";
-  document.getElementById('f_distributor').value = "";
-  document.getElementById('f_prod').value = "";
-  document.getElementById('f_weight').value = "";
-}
-function editItemForm(it) {
-  document.getElementById('f_name').value = it.name;
-  document.getElementById('f_season').value = it.season;
-  document.getElementById('f_retail').value = it.retail;
-  document.getElementById('f_distributor').value = it.distributor;
-  document.getElementById('f_prod').value = it.prod;
-  document.getElementById('f_weight').value = it.weight;
-}
-
-async function saveItemForm() {
-  const name = document.getElementById('f_name').value.trim();
-  if (!name) { alert("Name required"); return; }
-  const payload = {
-    name,
-    season: document.getElementById('f_season').value,
-    retail: parseFloat(document.getElementById('f_retail').value) || 0,
-    distributor: parseFloat(document.getElementById('f_distributor').value) || 0,
-    prod: parseFloat(document.getElementById('f_prod').value) || 0,
-    weight: parseFloat(document.getElementById('f_weight').value) || 0,
-  };
-  const exists = STATE.items.some(i => i.name === name);
-  const url = exists ? '/api/items/' + encodeURIComponent(name) : '/api/items';
-  const method = exists ? 'PUT' : 'POST';
-  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-  STATE.items = await r.json();
-  clearItemForm();
-  renderItems();
-  renderConfig();
-}
-
-async function deleteItem(name) {
-  const r = await fetch('/api/items/' + encodeURIComponent(name), {method:'DELETE'});
-  STATE.items = await r.json();
-  delete quantities[name];
-  renderItems();
-  renderConfig();
-}
-
-async function saveSettings() {
+async function saveSettings(){
   const payload = {};
   Object.keys(SETTINGS_LABELS).forEach(key => {
     payload[key] = parseFloat(document.getElementById('s_' + key).value);
   });
   const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   STATE.settings = await r.json();
-  renderItems();
-  alert("Settings saved permanently.");
+  renderTable();
+  alert("Settings updated.");
 }
 
-// ---------- CALCULATE / SPLIT ----------
-async function calculate() {
+function openAddModal(){
+  editingName = null;
+  document.getElementById('modalTitle').innerText = "Add Item";
+  document.getElementById('modalNote').innerText = `Enter Retail/Distributor/Production price in ${getCurrency()}. Stored internally as USD.`;
+  ['f_name','f_retail','f_distributor','f_prod','f_weight'].forEach(id => document.getElementById(id).value = "");
+  document.getElementById('f_season').value = "Winter";
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function openEditModal(){
+  if (!selectedName){ alert("Select an item to edit first"); return; }
+  const it = STATE.items.find(i => i.name === selectedName);
+  if (!it) return;
+  editingName = it.name;
+  document.getElementById('modalTitle').innerText = "Edit Item";
+  document.getElementById('modalNote').innerText = `Enter Retail/Distributor/Production price in ${getCurrency()}. Stored internally as USD.`;
+  document.getElementById('f_name').value = it.name;
+  document.getElementById('f_season').value = it.season;
+  document.getElementById('f_retail').value = conv(it.retail).toFixed(2);
+  document.getElementById('f_distributor').value = conv(it.distributor).toFixed(2);
+  document.getElementById('f_prod').value = conv(it.prod).toFixed(2);
+  document.getElementById('f_weight').value = it.weight;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+
+async function saveItemModal(){
+  const name = document.getElementById('f_name').value.trim();
+  if (!name){ alert("Name required"); return; }
+  let retail = parseFloat(document.getElementById('f_retail').value);
+  let distributor = parseFloat(document.getElementById('f_distributor').value);
+  let prod = parseFloat(document.getElementById('f_prod').value);
+  const weight = parseFloat(document.getElementById('f_weight').value);
+  if ([retail,distributor,prod,weight].some(isNaN)){ alert("Retail/Distributor/Prod/Weight must be numbers"); return; }
+  if (getCurrency() === "PKR"){
+    retail = retail / STATE.settings.pkr_per_usd;
+    distributor = distributor / STATE.settings.pkr_per_usd;
+    prod = prod / STATE.settings.pkr_per_usd;
+  }
+  const payload = { name, season: document.getElementById('f_season').value, retail, distributor, prod, weight };
+  const url = editingName ? '/api/items/' + encodeURIComponent(editingName) : '/api/items';
+  const method = editingName ? 'PUT' : 'POST';
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  STATE.items = await r.json();
+  selectedName = name;
+  closeModal();
+  renderTable();
+}
+
+async function removeSelected(){
+  if (!selectedName){ alert("Select an item to remove first"); return; }
+  const r = await fetch('/api/items/' + encodeURIComponent(selectedName), {method:'DELETE'});
+  STATE.items = await r.json();
+  selectedName = null;
+  renderTable();
+}
+
+loadState();
+"""
+    return page_shell("Configuration", body, script)
+
+# ---------------------------------------------------------------
+# CALCULATOR PAGE
+# ---------------------------------------------------------------
+@app.get("/calculator", response_class=HTMLResponse)
+def calculator_page():
+    body = """
+    <div class="topbar">
+      <button class="alt small" onclick="goHome()">&larr; Home</button>
+      <h1>Order Calculator</h1>
+      <div class="right">
+        <button class="success" id="modeBtn" onclick="togglePriceMode()"></button>
+        <button class="purple" id="curBtn" onclick="toggleCurrency()"></button>
+      </div>
+    </div>
+    <div class="mode-banner" id="modeBanner"></div>
+
+    <div class="main-row">
+      <div class="cart-card" id="cartCard"></div>
+      <div class="result-card">
+        <h3>&#128176; Order Summary</h3>
+        <pre class="output" id="resultBox">Select quantities and press Calculate.</pre>
+      </div>
+    </div>
+
+    <div class="center-btns">
+      <button class="success" onclick="calculate()">&#9654; Calculate</button>
+      <button class="purple" onclick="bestSplit()">&#128230; Best Split</button>
+    </div>
+    <div class="insurance-row">
+      <label><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance (0.5%-2% of declared value, official TCS range)</label>
+    </div>
+
+    <div class="card">
+      <h3>&#128230; Order Split Analysis</h3>
+      <pre class="output dim" id="splitBox">Click Calculate, then Best Split, to see the optimal way to break this order into shipments.</pre>
+    </div>
+    """
+    script = """
+let STATE = null;
+let quantities = {};
+let lastCartQuantities = null;
+
+function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
+function conv(usd){ return getCurrency() === "PKR" ? usd * STATE.settings.pkr_per_usd : usd; }
+function fmt(usd){
+  const v = conv(usd);
+  return getCurrency() === "PKR" ? "Rs " + v.toLocaleString(undefined,{maximumFractionDigits:0})
+                                  : "$" + v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function getPrice(it){ return getPriceMode() === "retail" ? it.retail : it.distributor; }
+
+function refreshTopButtons(){
+  document.getElementById('curBtn').innerHTML = `&#128176; ${getCurrency() === "USD" ? "USD &rarr; PKR" : "PKR &rarr; USD"}`;
+  const pm = getPriceMode();
+  document.getElementById('modeBtn').innerHTML = `&#127991; ${pm === "retail" ? "Retail mode &rarr; Distributor" : "Distributor mode &rarr; Retail"}`;
+  const banner = document.getElementById('modeBanner');
+  if (pm === "retail"){
+    banner.innerHTML = "&#128717; RETAIL PRICING (consumer)";
+    banner.style.color = "var(--accent)";
+  } else {
+    banner.innerHTML = "&#128230; DISTRIBUTOR PRICING (B2B/wholesale)";
+    banner.style.color = "var(--success)";
+  }
+}
+
+function toggleCurrency(){
+  setCurrency(getCurrency() === "USD" ? "PKR" : "USD");
+  refreshTopButtons();
+  renderCart();
+}
+function togglePriceMode(){
+  setPriceMode(getPriceMode() === "retail" ? "distributor" : "retail");
+  refreshTopButtons();
+  renderCart();
+}
+
+async function loadState(){
+  const r = await fetch('/api/state');
+  STATE = await r.json();
+  STATE.items.forEach(it => { if (!(it.name in quantities)) quantities[it.name] = 0; });
+  refreshTopButtons();
+  renderCart();
+}
+
+function renderCart(){
+  const card = document.getElementById('cartCard');
+  card.innerHTML = "";
+  const seasons = [["Winter","&#10052;"], ["All-Year","&#127772;"], ["Summer","&#9728;"]];
+  seasons.forEach(([season, icon]) => {
+    const items = STATE.items.filter(i => i.season === season);
+    if (!items.length) return;
+    const h = document.createElement('div');
+    h.className = 'season-header';
+    h.innerHTML = `${icon} ${season}`;
+    card.appendChild(h);
+    items.forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      const qty = quantities[it.name] || 0;
+      row.innerHTML = `
+        <span class="name">${it.name}</span>
+        <span class="design">${fmt(it.prod)}</span>
+        <span class="sell">${fmt(getPrice(it))}</span>
+        <span class="qtybox">
+          <button class="alt icon-btn" onclick="changeQty('${it.name}',-1)">&minus;</button>
+          <span id="q_${it.name}">${qty}</span>
+          <button class="accent icon-btn" onclick="changeQty('${it.name}',1)">+</button>
+        </span>`;
+      card.appendChild(row);
+    });
+  });
+}
+
+function changeQty(name, delta){
+  quantities[name] = Math.max(0, (quantities[name] || 0) + delta);
+  document.getElementById('q_' + name).innerText = quantities[name];
+}
+
+async function calculate(){
   const insurance = document.getElementById('insurance').checked;
   const r = await fetch('/api/calculate', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({quantities, price_mode: priceMode, insurance_enabled: insurance})
+    body: JSON.stringify({quantities, price_mode: getPriceMode(), insurance_enabled: insurance})
   });
   const d = await r.json();
   const box = document.getElementById('resultBox');
-  if (d.error) { box.innerText = d.error; return; }
-  let out = `Shipping mode: ${d.mode_label} (weight ${d.total_weight.toFixed(2)}kg)\\n`;
-  out += `Currency: ${currency} | Price mode: ${priceMode}\\n` + "-".repeat(50) + "\\n";
-  d.cart.forEach(c => out += `${c.name} x${c.qty}  price ${fmt(c.price)}  prod ${fmt(c.prod)}\\n`);
+  if (d.error){ box.innerText = d.error; lastCartQuantities = null; return; }
+  lastCartQuantities = JSON.parse(JSON.stringify(quantities));
+  const priceLabel = getPriceMode() === "retail" ? "Retail" : "Distrib.";
+  let out = `Shipping mode: ${d.mode_label}  (total weight ${d.total_weight.toFixed(2)}kg)\\n`;
+  out += `Display currency: ${getCurrency()}   |   Price mode: ${getPriceMode()}\\n`;
   out += "-".repeat(50) + "\\n";
-  out += `Total revenue:        ${fmt(d.total_revenue)}\\n`;
-  out += `Total production:     ${fmt(d.total_prod)}\\n`;
-  out += `Total duty:           ${fmt(d.duty)}\\n`;
-  out += `Total shipping:       ${fmt(d.shipping_cost)}\\n`;
-  if (d.insurance_cost) out += `Insurance:            ${fmt(d.insurance_cost)}\\n`;
-  out += `Landed cost:          ${fmt(d.landed_cost)}\\n`;
-  out += `Gross margin:         ${fmt(d.gross_margin)}\\n`;
-  out += `Your share (after tax/remit): ${fmt(d.your_share_after_tax)}\\n`;
+  out += `${"Item".padEnd(20)}${"Qty".padStart(5)}${priceLabel.padStart(12)}${"Prod".padStart(12)}\\n`;
+  d.cart.forEach(c => {
+    out += `${c.name.padEnd(20)}${String(c.qty).padStart(5)}${fmt(c.price).padStart(12)}${fmt(c.prod).padStart(12)}\\n`;
+  });
   out += "-".repeat(50) + "\\n";
-  out += d.is_profit ? "RESULT: ✅ PROFIT" : "RESULT: ❌ LOSS";
-  box.innerHTML = out;
-  box.className = d.is_profit ? "profit" : "loss";
+  out += `Total revenue:          ${fmt(d.total_revenue)}\\n`;
+  out += `Total production cost:  ${fmt(d.total_prod)}\\n`;
+  out += `Total duty:             ${fmt(d.duty)}\\n`;
+  out += `Total shipping cost:    ${fmt(d.shipping_cost)}\\n`;
+  if (d.insurance_cost) out += `Insurance cost:         ${fmt(d.insurance_cost)}\\n`;
+  out += `Landed cost:            ${fmt(d.landed_cost)}\\n`;
+  out += `Gross margin:           ${fmt(d.gross_margin)}\\n`;
+  out += `Your share (after remittance loss & export tax): ${fmt(d.your_share_after_tax)}\\n`;
+  out += "-".repeat(50) + "\\n";
+  out += `RESULT: ${d.is_profit ? "PROFIT" : "LOSS"}`;
+  box.innerText = out;
+  box.className = 'output ' + (d.is_profit ? 'profit' : 'loss');
 }
 
-async function bestSplit() {
+async function bestSplit(){
+  if (!lastCartQuantities){ alert("Click Calculate first, then Best Split."); return; }
   const r = await fetch('/api/best_split', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({quantities, price_mode: priceMode})
+    body: JSON.stringify({quantities: lastCartQuantities, price_mode: getPriceMode()})
   });
   const d = await r.json();
   const box = document.getElementById('splitBox');
-  if (d.error) { box.innerText = d.error; return; }
+  if (d.error){ box.innerText = d.error; return; }
   const totalQty = d.shipments.reduce((a,b)=>a+b,0);
   let out = "";
   if (d.shipments.length === 1) out += `Ship all ${totalQty} units in ONE shipment.\\n\\n`;
   else out += `Split ${totalQty} units into ${d.shipments.length} shipments:\\n  ${d.shipments.join(' + ')}\\n\\n`;
-  out += `One-shipment cost: ${fmt(d.one_shipment_cost)}\\n`;
-  out += `Best-split cost:   ${fmt(d.best_cost)}\\n`;
-  out += d.savings > 0.01 ? `\\n✅ Saves ${fmt(d.savings)} vs one shipment` : "\\nOne shipment is already optimal.";
+  out += `One-shipment cost (duty+ship): ${fmt(d.one_shipment_cost)}\\n`;
+  out += `Best-split cost (duty+ship):   ${fmt(d.best_cost)}\\n`;
+  out += d.savings > 0.01 ? `\\nSaves ${fmt(d.savings)} vs one shipment` : "\\nOne shipment is already optimal.";
   box.innerText = out;
+  box.className = d.savings > 0.01 ? 'output profit' : 'output dim';
 }
 
 loadState();
-</script>
-</body>
-</html>
 """
-
-@app.get("/", response_class=HTMLResponse)
-def index():
-    return INDEX_HTML
+    return page_shell("Order Calculator", body, script)
