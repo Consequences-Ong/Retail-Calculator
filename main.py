@@ -52,6 +52,40 @@ SHIPPING_TIERS_PKR = [
 ]
 
 # ---------------------------------------------------------------
+# DYNAMIC (quantity-tiered) PRICING — fixed in code on purpose.
+# Each tuple: (min_qty, max_qty, price_per_unit_usd). Beyond the
+# last tier's max, the last tier's price is used.
+# ---------------------------------------------------------------
+DYNAMIC_PRICING_USD = {
+    "Leather Jacket": [(1,5,134.50),(6,33,129.50),(34,38,127.00),(39,44,126.50),(45,50,125.00),(51,55,124.00)],
+    "Shearling Jacket": [(1,1,228.00),(2,3,208.50),(4,22,199.50),(23,29,197.00),(30,33,195.00),(34,37,193.00)],
+    "Motorbike/Racing Jacket": [(1,2,207.00),(3,26,166.50),(27,30,163.00),(31,39,162.00),(40,43,160.00)],
+    "Wool Overcoat": [(1,2,164.50),(3,27,121.00),(28,31,118.00),(32,36,117.50),(37,45,116.00)],
+    "Varsity/Bomber Jacket": [(1,1,102.00),(2,3,97.00),(4,6,87.50),(7,46,81.50),(47,53,80.50),(54,61,80.00)],
+    "Denim Jacket": [(1,1,72.50),(2,6,66.50),(7,11,55.50),(12,50,53.50),(51,56,52.50),(57,62,52.00)],
+    "Wool/Knit Sweater": [(1,1,72.50),(2,7,66.50),(8,12,52.00),(13,50,50.50),(51,57,50.00),(58,64,49.50)],
+    "Fleece Hoodie": [(1,1,65.00),(2,3,52.50),(4,8,50.00),(9,15,42.50),(16,66,40.00)],
+    "Leather Vest": [(1,1,99.00),(2,6,93.50),(7,11,82.00),(12,43,80.50),(44,50,80.00),(51,56,79.50),(57,62,79.00)],
+    "Denim Jeans": [(1,1,66.50),(2,6,61.00),(7,11,50.00),(12,43,48.00),(44,50,47.50),(51,56,47.00),(57,62,46.50)],
+    "Cargo Pants": [(1,1,68.00),(2,7,62.50),(8,12,48.00),(13,50,46.50),(51,64,45.50)],
+    "Flannel Shirt": [(1,2,64.00),(3,5,40.50),(6,12,39.00),(13,22,34.50),(23,30,31.00),(31,50,30.50),(51,62,29.00)],
+    "Polo Shirt": [(1,4,59.50),(5,9,28.00),(10,22,27.00),(23,40,23.50),(41,54,22.00),(55,63,21.00)],
+    "Linen Shirt": [(1,5,68.00),(6,25,34.50),(26,45,31.00),(46,60,29.50)],
+    "Shorts": [(1,3,59.50),(4,16,32.00),(17,30,26.50),(31,66,24.00)],
+    "T-shirt (regular)": [(1,5,58.00),(6,25,24.50),(26,45,21.50),(46,60,20.00)],
+    "T-shirt (oversized)": [(1,3,61.00),(4,7,32.50),(8,17,31.00),(18,32,27.50),(33,42,25.00),(43,71,24.50)],
+}
+
+def get_dynamic_price(name, qty):
+    tiers = DYNAMIC_PRICING_USD.get(name)
+    if not tiers or not qty or qty <= 0:
+        return 0.0
+    for lo, hi, price in tiers:
+        if lo <= qty <= hi:
+            return price
+    return tiers[-1][2]
+
+# ---------------------------------------------------------------
 # PERSISTENT STORAGE (Postgres) — falls back to defaults if
 # DATABASE_URL isn't set, but changes won't survive restarts then.
 # ---------------------------------------------------------------
@@ -114,7 +148,9 @@ def get_shipping_cost(total_weight_kg, pkr_per_usd):
     last_kg, last_cost = SHIPPING_TIERS_PKR[-1]
     return total_weight_kg * (last_cost / last_kg) / pkr_per_usd
 
-def get_price(item, mode):
+def get_price(item, mode, qty=None):
+    if mode == "dynamic":
+        return get_dynamic_price(item["name"], qty)
     return item["retail"] if mode == "retail" else item["distributor"]
 
 def compute_shipment_cost(cart_items, settings, mode):
@@ -124,7 +160,7 @@ def compute_shipment_cost(cart_items, settings, mode):
     if is_batch:
         duty_usd = sum(settings["duty_rate"] * settings["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
     else:
-        duty_usd = sum(settings["duty_rate"] * get_price(it, mode) * q for it, q in cart_items)
+        duty_usd = sum(settings["duty_rate"] * get_price(it, mode, q) * q for it, q in cart_items)
     return duty_usd, shipping_usd, is_batch, total_weight
 
 def optimal_split_single_item(item, qty, settings, mode):
@@ -270,7 +306,7 @@ def calculate(body: CalcIn):
 
     total_weight = sum(it["weight"] * q for it, q in cart_items)
     total_prod = sum(it["prod"] * q for it, q in cart_items)
-    total_revenue = sum(get_price(it, body.price_mode) * q for it, q in cart_items)
+    total_revenue = sum(get_price(it, body.price_mode, q) * q for it, q in cart_items)
     shipping_cost = get_shipping_cost(total_weight, s["pkr_per_usd"])
     is_batch = total_weight > 2.0
 
@@ -279,8 +315,8 @@ def calculate(body: CalcIn):
         declared_value = sum(s["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
         mode_label = "BATCH"
     else:
-        duty = sum(s["duty_rate"] * get_price(it, body.price_mode) * q for it, q in cart_items)
-        declared_value = sum(get_price(it, body.price_mode) * q for it, q in cart_items)
+        duty = sum(s["duty_rate"] * get_price(it, body.price_mode, q) * q for it, q in cart_items)
+        declared_value = sum(get_price(it, body.price_mode, q) * q for it, q in cart_items)
         mode_label = "INDIVIDUAL"
 
     insurance_cost = declared_value * s["insurance_rate"] if body.insurance_enabled else 0.0
@@ -301,7 +337,7 @@ def calculate(body: CalcIn):
         "gross_margin": gross_margin,
         "your_share_after_tax": your_share_after_tax,
         "is_profit": your_share_after_tax >= 0,
-        "cart": [{"name": it["name"], "qty": q, "price": get_price(it, body.price_mode), "prod": it["prod"]} for it, q in cart_items],
+        "cart": [{"name": it["name"], "qty": q, "price": get_price(it, body.price_mode, q), "prod": it["prod"]} for it, q in cart_items],
     }
 
 @app.post("/api/best_split")
@@ -367,7 +403,9 @@ tr.selected:nth-child(even) td{background:var(--accent);}
 .main-row{display:flex;gap:16px;margin:0 20px 16px 20px;height:320px;}
 .cart-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow-y:auto;padding:10px;}
 .result-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-y:auto;}
-.season-header{color:var(--accent);font-weight:700;font-size:13px;margin:12px 0 6px 4px;}
+.season-header{display:flex;justify-content:space-between;align-items:center;color:var(--accent);font-weight:700;font-size:13px;margin:12px 0 6px 4px;}
+.season-header .cols{display:flex;gap:0;}
+.season-header .cols span{width:100px;text-align:right;padding-right:10px;color:var(--dim);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
 .item-row{display:flex;align-items:center;background:var(--input);border-radius:6px;padding:8px 10px;margin:4px 0;}
 .item-row .name{flex:2;font-size:13px;}
 .item-row .design{flex:1;color:var(--dim);font-size:13px;}
@@ -380,6 +418,10 @@ pre.output{white-space:pre-wrap;font-family:Consolas,monospace;font-size:12.5px;
 .profit{color:var(--success);font-weight:700;}
 .loss{color:var(--danger);font-weight:700;}
 .dim{color:var(--dim);}
+.lbl{color:var(--dim);}
+.hl{color:var(--text);font-weight:700;}
+.money{color:var(--accent);font-weight:700;}
+.money-dim{color:var(--dim);}
 .accent-text{color:var(--accent);}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:50;}
 .modal-overlay.open{display:flex;}
@@ -666,6 +708,43 @@ let STATE = null;
 let quantities = {};
 let lastCartQuantities = null;
 
+const DYNAMIC_PRICING = {
+  "Leather Jacket": [[1,5,134.50],[6,33,129.50],[34,38,127.00],[39,44,126.50],[45,50,125.00],[51,55,124.00]],
+  "Shearling Jacket": [[1,1,228.00],[2,3,208.50],[4,22,199.50],[23,29,197.00],[30,33,195.00],[34,37,193.00]],
+  "Motorbike/Racing Jacket": [[1,2,207.00],[3,26,166.50],[27,30,163.00],[31,39,162.00],[40,43,160.00]],
+  "Wool Overcoat": [[1,2,164.50],[3,27,121.00],[28,31,118.00],[32,36,117.50],[37,45,116.00]],
+  "Varsity/Bomber Jacket": [[1,1,102.00],[2,3,97.00],[4,6,87.50],[7,46,81.50],[47,53,80.50],[54,61,80.00]],
+  "Denim Jacket": [[1,1,72.50],[2,6,66.50],[7,11,55.50],[12,50,53.50],[51,56,52.50],[57,62,52.00]],
+  "Wool/Knit Sweater": [[1,1,72.50],[2,7,66.50],[8,12,52.00],[13,50,50.50],[51,57,50.00],[58,64,49.50]],
+  "Fleece Hoodie": [[1,1,65.00],[2,3,52.50],[4,8,50.00],[9,15,42.50],[16,66,40.00]],
+  "Leather Vest": [[1,1,99.00],[2,6,93.50],[7,11,82.00],[12,43,80.50],[44,50,80.00],[51,56,79.50],[57,62,79.00]],
+  "Denim Jeans": [[1,1,66.50],[2,6,61.00],[7,11,50.00],[12,43,48.00],[44,50,47.50],[51,56,47.00],[57,62,46.50]],
+  "Cargo Pants": [[1,1,68.00],[2,7,62.50],[8,12,48.00],[13,50,46.50],[51,64,45.50]],
+  "Flannel Shirt": [[1,2,64.00],[3,5,40.50],[6,12,39.00],[13,22,34.50],[23,30,31.00],[31,50,30.50],[51,62,29.00]],
+  "Polo Shirt": [[1,4,59.50],[5,9,28.00],[10,22,27.00],[23,40,23.50],[41,54,22.00],[55,63,21.00]],
+  "Linen Shirt": [[1,5,68.00],[6,25,34.50],[26,45,31.00],[46,60,29.50]],
+  "Shorts": [[1,3,59.50],[4,16,32.00],[17,30,26.50],[31,66,24.00]],
+  "T-shirt (regular)": [[1,5,58.00],[6,25,24.50],[26,45,21.50],[46,60,20.00]],
+  "T-shirt (oversized)": [[1,3,61.00],[4,7,32.50],[8,17,31.00],[18,32,27.50],[33,42,25.00],[43,71,24.50]],
+};
+
+function getDynamicPriceUSD(name, qty){
+  const tiers = DYNAMIC_PRICING[name];
+  if (!tiers || !qty || qty <= 0) return null;
+  for (const [lo,hi,price] of tiers){
+    if (qty >= lo && qty <= hi) return price;
+  }
+  return tiers[tiers.length-1][2];
+}
+
+function getSellDisplay(it, qty){
+  if (getPriceMode() === "dynamic"){
+    const p = getDynamicPriceUSD(it.name, qty);
+    return p === null ? "-" : fmt(p);
+  }
+  return fmt(getPrice(it));
+}
+
 function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
 function conv(usd){ return getCurrency() === "PKR" ? usd * STATE.settings.pkr_per_usd : usd; }
 function fmt(usd){
@@ -678,14 +757,19 @@ function getPrice(it){ return getPriceMode() === "retail" ? it.retail : it.distr
 function refreshTopButtons(){
   document.getElementById('curBtn').innerHTML = `&#128176; ${getCurrency() === "USD" ? "USD &rarr; PKR" : "PKR &rarr; USD"}`;
   const pm = getPriceMode();
-  document.getElementById('modeBtn').innerHTML = `&#127991; ${pm === "retail" ? "Retail mode &rarr; Distributor" : "Distributor mode &rarr; Retail"}`;
   const banner = document.getElementById('modeBanner');
   if (pm === "retail"){
+    document.getElementById('modeBtn').innerHTML = `&#127991; Retail mode &rarr; Distributor`;
     banner.innerHTML = "&#128717; RETAIL PRICING (consumer)";
     banner.style.color = "var(--accent)";
-  } else {
+  } else if (pm === "distributor"){
+    document.getElementById('modeBtn').innerHTML = `&#127991; Distributor mode &rarr; Dynamic`;
     banner.innerHTML = "&#128230; DISTRIBUTOR PRICING (B2B/wholesale)";
     banner.style.color = "var(--success)";
+  } else {
+    document.getElementById('modeBtn').innerHTML = `&#127991; Dynamic mode &rarr; Retail`;
+    banner.innerHTML = "&#128200; DYNAMIC PRICING (qty-tiered)";
+    banner.style.color = "var(--purple)";
   }
 }
 
@@ -695,7 +779,9 @@ function toggleCurrency(){
   renderCart();
 }
 function togglePriceMode(){
-  setPriceMode(getPriceMode() === "retail" ? "distributor" : "retail");
+  const order = ["retail","distributor","dynamic"];
+  const idx = order.indexOf(getPriceMode());
+  setPriceMode(order[(idx + 1) % order.length]);
   refreshTopButtons();
   renderCart();
 }
@@ -711,13 +797,14 @@ async function loadState(){
 function renderCart(){
   const card = document.getElementById('cartCard');
   card.innerHTML = "";
+  const sellLabel = getPriceMode() === "dynamic" ? "Price/Unit" : "Selling Price";
   const seasons = [["Winter","&#10052;"], ["All-Year","&#127772;"], ["Summer","&#9728;"]];
   seasons.forEach(([season, icon]) => {
     const items = STATE.items.filter(i => i.season === season);
     if (!items.length) return;
     const h = document.createElement('div');
     h.className = 'season-header';
-    h.innerHTML = `${icon} ${season}`;
+    h.innerHTML = `<span>${icon} ${season}</span><span class="cols"><span>Design Cost</span><span>${sellLabel}</span></span>`;
     card.appendChild(h);
     items.forEach(it => {
       const row = document.createElement('div');
@@ -726,7 +813,7 @@ function renderCart(){
       row.innerHTML = `
         <span class="name">${it.name}</span>
         <span class="design">${fmt(it.prod)}</span>
-        <span class="sell">${fmt(getPrice(it))}</span>
+        <span class="sell" id="sell_${it.name}">${getSellDisplay(it, qty)}</span>
         <span class="qtybox">
           <button class="alt icon-btn" onclick="changeQty('${it.name}',-1)">&minus;</button>
           <span id="q_${it.name}">${qty}</span>
@@ -740,6 +827,8 @@ function renderCart(){
 function changeQty(name, delta){
   quantities[name] = Math.max(0, (quantities[name] || 0) + delta);
   document.getElementById('q_' + name).innerText = quantities[name];
+  const it = STATE.items.find(i => i.name === name);
+  document.getElementById('sell_' + name).innerText = getSellDisplay(it, quantities[name]);
 }
 
 async function calculate(){
@@ -752,27 +841,28 @@ async function calculate(){
   const box = document.getElementById('resultBox');
   if (d.error){ box.innerText = d.error; lastCartQuantities = null; return; }
   lastCartQuantities = JSON.parse(JSON.stringify(quantities));
-  const priceLabel = getPriceMode() === "retail" ? "Retail" : "Distrib.";
-  let out = `Shipping mode: ${d.mode_label}  (total weight ${d.total_weight.toFixed(2)}kg)\\n`;
-  out += `Display currency: ${getCurrency()}   |   Price mode: ${getPriceMode()}\\n`;
+  const pm = getPriceMode();
+  const priceLabel = pm === "retail" ? "Retail" : pm === "distributor" ? "Distrib." : "Dyn/unit";
+  let out = `<span class="lbl">Shipping mode:</span> <span class="hl">${d.mode_label}</span>  <span class="lbl">(total weight ${d.total_weight.toFixed(2)}kg)</span>\\n`;
+  out += `<span class="lbl">Display currency: ${getCurrency()}   |   Price mode: ${pm}</span>\\n`;
   out += "-".repeat(50) + "\\n";
-  out += `${"Item".padEnd(20)}${"Qty".padStart(5)}${priceLabel.padStart(12)}${"Prod".padStart(12)}\\n`;
+  out += `<span class="lbl">${"Item".padEnd(20)}${"Qty".padStart(5)}${priceLabel.padStart(12)}${"Prod".padStart(12)}</span>\\n`;
   d.cart.forEach(c => {
-    out += `${c.name.padEnd(20)}${String(c.qty).padStart(5)}${fmt(c.price).padStart(12)}${fmt(c.prod).padStart(12)}\\n`;
+    out += `${c.name.padEnd(20)}<span class="hl">${String(c.qty).padStart(5)}</span><span class="money">${fmt(c.price).padStart(12)}</span><span class="money-dim">${fmt(c.prod).padStart(12)}</span>\\n`;
   });
   out += "-".repeat(50) + "\\n";
-  out += `Total revenue:          ${fmt(d.total_revenue)}\\n`;
-  out += `Total production cost:  ${fmt(d.total_prod)}\\n`;
-  out += `Total duty:             ${fmt(d.duty)}\\n`;
-  out += `Total shipping cost:    ${fmt(d.shipping_cost)}\\n`;
-  if (d.insurance_cost) out += `Insurance cost:         ${fmt(d.insurance_cost)}\\n`;
-  out += `Landed cost:            ${fmt(d.landed_cost)}\\n`;
-  out += `Gross margin:           ${fmt(d.gross_margin)}\\n`;
-  out += `Your share (after remittance loss & export tax): ${fmt(d.your_share_after_tax)}\\n`;
+  out += `Total revenue:          <span class="money">${fmt(d.total_revenue)}</span>\\n`;
+  out += `Total production cost:  <span class="money-dim">${fmt(d.total_prod)}</span>\\n`;
+  out += `Total duty:             <span class="money-dim">${fmt(d.duty)}</span>\\n`;
+  out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\\n`;
+  if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\\n`;
+  out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\\n`;
+  out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\\n`;
+  out += `Your share (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.your_share_after_tax)}</span>\\n`;
   out += "-".repeat(50) + "\\n";
-  out += `RESULT: ${d.is_profit ? "PROFIT" : "LOSS"}`;
-  box.innerText = out;
-  box.className = 'output ' + (d.is_profit ? 'profit' : 'loss');
+  out += `RESULT: <span class="${d.is_profit ? 'profit' : 'loss'}">${d.is_profit ? "PROFIT" : "LOSS"}</span>`;
+  box.innerHTML = out;
+  box.className = 'output';
 }
 
 async function bestSplit(){
