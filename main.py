@@ -403,14 +403,13 @@ tr.selected:nth-child(even) td{background:var(--accent);}
 .main-row{display:flex;gap:16px;margin:0 20px 16px 20px;height:320px;}
 .cart-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow-y:auto;padding:10px;}
 .result-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;overflow-y:auto;}
-.season-header{display:flex;justify-content:space-between;align-items:center;color:var(--accent);font-weight:700;font-size:13px;margin:12px 0 6px 4px;}
-.season-header .cols{display:flex;gap:0;}
-.season-header .cols span{width:100px;text-align:right;padding-right:10px;color:var(--dim);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
-.item-row{display:flex;align-items:center;background:var(--input);border-radius:6px;padding:8px 10px;margin:4px 0;}
-.item-row .name{flex:2;font-size:13px;}
-.item-row .design{flex:1;color:var(--dim);font-size:13px;}
-.item-row .sell{flex:1;color:var(--accent);font-weight:700;font-size:13px;}
-.item-row .qtybox{display:flex;align-items:center;gap:8px;}
+.season-header{display:grid;grid-template-columns:1fr 110px 110px 118px;align-items:center;color:var(--accent);font-weight:700;font-size:13px;margin:12px 0 6px 4px;column-gap:8px;}
+.season-header .col{color:var(--dim);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;text-align:right;}
+.item-row{display:grid;grid-template-columns:1fr 110px 110px 118px;align-items:center;background:var(--input);border-radius:6px;padding:8px 10px;margin:4px 0;column-gap:8px;}
+.item-row .name{font-size:13px;}
+.item-row .design{color:var(--dim);font-size:13px;text-align:right;}
+.item-row .sell{color:var(--accent);font-weight:700;font-size:13px;text-align:right;}
+.item-row .qtybox{display:flex;align-items:center;justify-content:flex-end;gap:8px;}
 .item-row .qtybox span{min-width:18px;text-align:center;color:var(--accent);font-weight:700;}
 .center-btns{display:flex;justify-content:center;gap:10px;margin:12px 20px;}
 .insurance-row{text-align:center;margin-bottom:10px;font-size:13px;color:var(--text);}
@@ -804,7 +803,7 @@ function renderCart(){
     if (!items.length) return;
     const h = document.createElement('div');
     h.className = 'season-header';
-    h.innerHTML = `<span>${icon} ${season}</span><span class="cols"><span>Design Cost</span><span>${sellLabel}</span></span>`;
+    h.innerHTML = `<span>${icon} ${season}</span><span class="col">Design Cost</span><span class="col">${sellLabel}</span><span></span>`;
     card.appendChild(h);
     items.forEach(it => {
       const row = document.createElement('div');
