@@ -197,6 +197,18 @@ class ItemIn(BaseModel):
     prod: float
     weight: float
 
+class ItemEditIn(BaseModel):
+    original_name: str
+    name: str
+    season: str = "All-Year"
+    retail: float
+    distributor: float
+    prod: float
+    weight: float
+
+class ItemDeleteIn(BaseModel):
+    name: str
+
 class CalcIn(BaseModel):
     quantities: Dict[str, int]
     price_mode: str = "retail"
@@ -226,21 +238,21 @@ def add_item(item: ItemIn):
     persist("items", STATE["items"])
     return STATE["items"]
 
-@app.put("/api/items/{name}")
-def edit_item(name: str, item: ItemIn):
+@app.put("/api/items")
+def edit_item(item: ItemEditIn):
     for i, it in enumerate(STATE["items"]):
-        if it["name"] == name:
-            STATE["items"][i] = item.dict()
+        if it["name"] == item.original_name:
+            STATE["items"][i] = item.dict(exclude={"original_name"})
             persist("items", STATE["items"])
             return STATE["items"]
     return {"error": "not found"}
 
-@app.delete("/api/items/{name}")
-def delete_item(name: str):
-    STATE["items"] = [i for i in STATE["items"] if i["name"] != name]
+@app.delete("/api/items")
+def delete_item(body: ItemDeleteIn):
+    STATE["items"] = [i for i in STATE["items"] if i["name"] != body.name]
     persist("items", STATE["items"])
     return STATE["items"]
-
+    
 def build_cart(quantities: Dict[str, int]):
     items_by_name = {i["name"]: i for i in STATE["items"]}
     cart = []
@@ -589,10 +601,11 @@ async function saveItemModal(){
     distributor = distributor / STATE.settings.pkr_per_usd;
     prod = prod / STATE.settings.pkr_per_usd;
   }
-  const payload = { name, season: document.getElementById('f_season').value, retail, distributor, prod, weight };
-  const url = editingName ? '/api/items/' + encodeURIComponent(editingName) : '/api/items';
   const method = editingName ? 'PUT' : 'POST';
-  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const payload = editingName
+    ? { original_name: editingName, name, season: document.getElementById('f_season').value, retail, distributor, prod, weight }
+    : { name, season: document.getElementById('f_season').value, retail, distributor, prod, weight };
+  const r = await fetch('/api/items', {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   STATE.items = await r.json();
   selectedName = name;
   closeModal();
@@ -601,7 +614,7 @@ async function saveItemModal(){
 
 async function removeSelected(){
   if (!selectedName){ alert("Select an item to remove first"); return; }
-  const r = await fetch('/api/items/' + encodeURIComponent(selectedName), {method:'DELETE'});
+  const r = await fetch('/api/items', {method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedName})});
   STATE.items = await r.json();
   selectedName = null;
   renderTable();
