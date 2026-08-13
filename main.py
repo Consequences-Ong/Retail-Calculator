@@ -871,7 +871,7 @@ async function calculate(){
   out += `Net profit (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.net_profit_after_tax)}</span>\\n`;
   out += `Your share:             <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.your_share_after_tax)}</span>\\n`;
   out += `Friend's share:         <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.friend_share_after_tax)}</span>\\n`;
-  out += "-".repeat(50) + "\n";
+  out += "-".repeat(50) + "\\n";
   out += `RESULT: <span class="${d.is_profit ? 'profit' : 'loss'}">${d.is_profit ? "PROFIT" : "LOSS"}</span>`;
   box.innerHTML = out;
   box.className = 'output';
