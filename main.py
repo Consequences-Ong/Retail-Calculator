@@ -39,8 +39,8 @@ DEFAULT_SETTINGS = {
     "remit_loss": 0.02,
     "pkr_per_usd": 277.6,
     "insurance_rate": 0.0125,
+    "platform_fee_rate": 0.15,
 }
-
 SHIPPING_TIERS_PKR = [
     (0.5, 12262), (1, 12262), (1.5, 17376), (2, 17376),
     (2.1, 32054), (2.5, 32054), (3, 32054), (4, 32054), (5, 32054),
@@ -224,6 +224,7 @@ class SettingsIn(BaseModel):
     remit_loss: Optional[float] = None
     pkr_per_usd: Optional[float] = None
     insurance_rate: Optional[float] = None
+    platform_fee_rate: Optional[float] = None
 
 class ItemIn(BaseModel):
     name: str
@@ -249,6 +250,7 @@ class CalcIn(BaseModel):
     quantities: Dict[str, int]
     price_mode: str = "retail"
     insurance_enabled: bool = False
+    platform_fee_enabled: bool = False
 
 # ---------------------------------------------------------------
 # API routes
@@ -320,10 +322,13 @@ def calculate(body: CalcIn):
         mode_label = "INDIVIDUAL"
 
     insurance_cost = declared_value * s["insurance_rate"] if body.insurance_enabled else 0.0
+    platform_fee_cost = total_revenue * s["platform_fee_rate"] if body.platform_fee_enabled else 0.0
     landed_cost = total_prod + duty + shipping_cost + insurance_cost
-    gross_margin = total_revenue - landed_cost
-    your_share = gross_margin * s["split"] * (1 - s["remit_loss"])
-    your_share_after_tax = your_share * (1 - s["tax_rate"]) if your_share > 0 else your_share
+    gross_margin = total_revenue - landed_cost - platform_fee_cost
+    net_after_remit = gross_margin * (1 - s["remit_loss"])
+    net_profit_after_tax = net_after_remit * (1 - s["tax_rate"]) if net_after_remit > 0 else net_after_remit
+    your_share_after_tax = net_profit_after_tax * s["split"]
+    friend_share_after_tax = net_profit_after_tax - your_share_after_tax
 
     return {
         "mode_label": mode_label,
@@ -333,13 +338,15 @@ def calculate(body: CalcIn):
         "duty": duty,
         "shipping_cost": shipping_cost,
         "insurance_cost": insurance_cost,
+        "platform_fee_cost": platform_fee_cost,
         "landed_cost": landed_cost,
         "gross_margin": gross_margin,
+        "net_profit_after_tax": net_profit_after_tax,
         "your_share_after_tax": your_share_after_tax,
-        "is_profit": your_share_after_tax >= 0,
+        "friend_share_after_tax": friend_share_after_tax,
+        "is_profit": net_profit_after_tax >= 0,
         "cart": [{"name": it["name"], "qty": q, "price": get_price(it, body.price_mode, q), "prod": it["prod"]} for it, q in cart_items],
     }
-
 @app.post("/api/best_split")
 def best_split(body: CalcIn):
     s = STATE["settings"]
@@ -531,11 +538,12 @@ let selectedName = null;
 const SETTINGS_LABELS = {
   duty_rate: "Customs duty rate (0-1)",
   transfer_multiplier: "Transfer value multiplier (batch duty basis)",
-  tax_rate: "Export tax rate on your share (0-1)",
-  split: "Your split of gross margin (0-1)",
+  tax_rate: "Export tax rate on total profit (0-1)",
+  split: "Your final profit split (0-1, 0.5 = 50/50)",
   remit_loss: "Remittance/FX loss (0-1)",
   pkr_per_usd: "PKR per USD rate",
   insurance_rate: "TCS insurance rate (0-1, official range 0.005-0.02)",
+  platform_fee_rate: "Platform commission rate (0-1, e.g. Faire/FashionGo)",
 };
 
 function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
@@ -693,8 +701,9 @@ def calculator_page():
       <button class="success" onclick="calculate()">&#9654; Calculate</button>
       <button class="purple" onclick="bestSplit()">&#128230; Best Split</button>
     </div>
-    <div class="insurance-row">
+     <div class="insurance-row">
       <label><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance (0.5%-2% of declared value, official TCS range)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="platformFee" onchange="calculate()"> Include Platform Fee (Faire/FashionGo/etc., rate set in Configuration)</label>
     </div>
 
     <div class="card">
@@ -832,9 +841,10 @@ function changeQty(name, delta){
 
 async function calculate(){
   const insurance = document.getElementById('insurance').checked;
+  const platformFee = document.getElementById('platformFee').checked;
   const r = await fetch('/api/calculate', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({quantities, price_mode: getPriceMode(), insurance_enabled: insurance})
+    body: JSON.stringify({quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee})
   });
   const d = await r.json();
   const box = document.getElementById('resultBox');
@@ -850,15 +860,18 @@ async function calculate(){
     out += `${c.name.padEnd(20)}<span class="hl">${String(c.qty).padStart(5)}</span><span class="money">${fmt(c.price).padStart(12)}</span><span class="money-dim">${fmt(c.prod).padStart(12)}</span>\\n`;
   });
   out += "-".repeat(50) + "\\n";
-  out += `Total revenue:          <span class="money">${fmt(d.total_revenue)}</span>\\n`;
-  out += `Total production cost:  <span class="money-dim">${fmt(d.total_prod)}</span>\\n`;
-  out += `Total duty:             <span class="money-dim">${fmt(d.duty)}</span>\\n`;
-  out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\\n`;
-  if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\\n`;
-  out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\\n`;
-  out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\\n`;
-  out += `Your share (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.your_share_after_tax)}</span>\\n`;
-  out += "-".repeat(50) + "\\n";
+  out += `Total revenue:          <span class="money">${fmt(d.total_revenue)}</span>\n`;
+  out += `Total production cost:  <span class="money-dim">${fmt(d.total_prod)}</span>\n`;
+  out += `Total duty:             <span class="money-dim">${fmt(d.duty)}</span>\n`;
+  out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\n`;
+  if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\n`;
+  if (d.platform_fee_cost) out += `Platform fee:           <span class="money-dim">${fmt(d.platform_fee_cost)}</span>\n`;
+  out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\n`;
+  out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\n`;
+  out += `Net profit (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.net_profit_after_tax)}</span>\n`;
+  out += `Your share:             <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.your_share_after_tax)}</span>\n`;
+  out += `Friend's share:         <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.friend_share_after_tax)}</span>\n`;
+  out += "-".repeat(50) + "\n";
   out += `RESULT: <span class="${d.is_profit ? 'profit' : 'loss'}">${d.is_profit ? "PROFIT" : "LOSS"}</span>`;
   box.innerHTML = out;
   box.className = 'output';
