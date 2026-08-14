@@ -3,7 +3,7 @@ import json
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import psycopg2
 
 app = FastAPI()
@@ -76,10 +76,10 @@ DYNAMIC_PRICING_USD = {
     "T-shirt (oversized)": [(1,3,61.00),(4,7,32.50),(8,17,31.00),(18,32,27.50),(33,42,25.00),(43,71,24.50)],
 }
 
-def get_dynamic_price(name, qty):
+def get_dynamic_price(name, qty, fallback=0.0):
     tiers = DYNAMIC_PRICING_USD.get(name)
     if not tiers or not qty or qty <= 0:
-        return 0.0
+        return fallback
     for lo, hi, price in tiers:
         if lo <= qty <= hi:
             return price
@@ -150,7 +150,7 @@ def get_shipping_cost(total_weight_kg, pkr_per_usd):
 
 def get_price(item, mode, qty=None):
     if mode == "dynamic":
-        return get_dynamic_price(item["name"], qty)
+        return get_dynamic_price(item["name"], qty, fallback=item["distributor"])
     return item["retail"] if mode == "retail" else item["distributor"]
 
 def compute_shipment_cost(cart_items, settings, mode):
@@ -252,6 +252,13 @@ class CalcIn(BaseModel):
     insurance_enabled: bool = False
     platform_fee_enabled: bool = False
 
+class CustomCalcIn(BaseModel):
+    items: List[ItemIn]
+    quantities: Dict[str, int]
+    price_mode: str = "retail"
+    insurance_enabled: bool = False
+    platform_fee_enabled: bool = False
+
 # ---------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------
@@ -299,16 +306,14 @@ def build_cart(quantities: Dict[str, int]):
             cart.append((items_by_name[name], qty))
     return cart
 
-@app.post("/api/calculate")
-def calculate(body: CalcIn):
-    s = STATE["settings"]
-    cart_items = build_cart(body.quantities)
+def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_fee_enabled):
+    s = settings
     if not cart_items:
         return {"error": "No items selected."}
 
     total_weight = sum(it["weight"] * q for it, q in cart_items)
     total_prod = sum(it["prod"] * q for it, q in cart_items)
-    total_revenue = sum(get_price(it, body.price_mode, q) * q for it, q in cart_items)
+    total_revenue = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
     shipping_cost = get_shipping_cost(total_weight, s["pkr_per_usd"])
     is_batch = total_weight > 2.0
 
@@ -317,12 +322,12 @@ def calculate(body: CalcIn):
         declared_value = sum(s["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
         mode_label = "BATCH"
     else:
-        duty = sum(s["duty_rate"] * get_price(it, body.price_mode, q) * q for it, q in cart_items)
-        declared_value = sum(get_price(it, body.price_mode, q) * q for it, q in cart_items)
+        duty = sum(s["duty_rate"] * get_price(it, price_mode, q) * q for it, q in cart_items)
+        declared_value = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
         mode_label = "INDIVIDUAL"
 
-    insurance_cost = declared_value * s["insurance_rate"] if body.insurance_enabled else 0.0
-    platform_fee_cost = total_revenue * s["platform_fee_rate"] if body.platform_fee_enabled else 0.0
+    insurance_cost = declared_value * s["insurance_rate"] if insurance_enabled else 0.0
+    platform_fee_cost = total_revenue * s["platform_fee_rate"] if platform_fee_enabled else 0.0
     landed_cost = total_prod + duty + shipping_cost + insurance_cost
     gross_margin = total_revenue - landed_cost - platform_fee_cost
     net_after_remit = gross_margin * (1 - s["remit_loss"])
@@ -345,16 +350,31 @@ def calculate(body: CalcIn):
         "your_share_after_tax": your_share_after_tax,
         "friend_share_after_tax": friend_share_after_tax,
         "is_profit": net_profit_after_tax >= 0,
-        "cart": [{"name": it["name"], "qty": q, "price": get_price(it, body.price_mode, q), "prod": it["prod"]} for it, q in cart_items],
+        "cart": [{"name": it["name"], "qty": q, "price": get_price(it, price_mode, q), "prod": it["prod"]} for it, q in cart_items],
     }
-@app.post("/api/best_split")
-def best_split(body: CalcIn):
-    s = STATE["settings"]
+
+def build_custom_cart(items: List[ItemIn], quantities: Dict[str, int]):
+    items_by_name = {i.name: i.dict() for i in items}
+    cart = []
+    for name, qty in quantities.items():
+        if qty and qty > 0 and name in items_by_name:
+            cart.append((items_by_name[name], qty))
+    return cart
+
+@app.post("/api/calculate")
+def calculate(body: CalcIn):
     cart_items = build_cart(body.quantities)
+    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled)
+
+@app.post("/api/custom_calculate")
+def custom_calculate(body: CustomCalcIn):
+    cart_items = build_custom_cart(body.items, body.quantities)
+    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled)
+def run_best_split(cart_items, settings, price_mode):
     if not cart_items:
         return {"error": "No items selected."}
-    shipments, best_cost = find_best_shipping_plan(cart_items, s, body.price_mode)
-    duty, shipping, _, _ = compute_shipment_cost(cart_items, s, body.price_mode)
+    shipments, best_cost = find_best_shipping_plan(cart_items, settings, price_mode)
+    duty, shipping, _, _ = compute_shipment_cost(cart_items, settings, price_mode)
     one_shipment_cost = duty + shipping
     return {
         "shipments": shipments,
@@ -362,6 +382,16 @@ def best_split(body: CalcIn):
         "one_shipment_cost": one_shipment_cost,
         "savings": one_shipment_cost - best_cost,
     }
+
+@app.post("/api/best_split")
+def best_split(body: CalcIn):
+    cart_items = build_cart(body.quantities)
+    return run_best_split(cart_items, STATE["settings"], body.price_mode)
+
+@app.post("/api/custom_best_split")
+def custom_best_split(body: CustomCalcIn):
+    cart_items = build_custom_cart(body.items, body.quantities)
+    return run_best_split(cart_items, STATE["settings"], body.price_mode)
 
 # ---------------------------------------------------------------
 # SHARED CSS (mirrors the Tkinter COLORS/FONT palette exactly)
@@ -394,6 +424,7 @@ button.icon-btn{width:34px;height:34px;padding:0;font-size:16px;border-radius:6p
 .home-btn{width:280px;padding:18px;font-size:15px;margin:8px 0;border-radius:8px;}
 .home-btn.cfg{background:var(--card);color:var(--text);border:1px solid var(--accent);}
 .home-btn.calc{background:var(--accent);color:#111318;}
+.home-btn.custom{background:var(--purple);color:#fff;}
 table{width:100%;border-collapse:collapse;}
 th{color:var(--accent);text-align:center;font-size:13px;padding:10px 8px;background:var(--input);}
 td{text-align:center;font-size:13px;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;}
@@ -469,6 +500,7 @@ def home():
       <div class="sub">Pakistan &rarr; USA margin &amp; shipping calculator</div>
       <button class="home-btn cfg" onclick="window.location.href='/config'">⚙&nbsp;&nbsp;Configuration</button>
       <button class="home-btn calc" onclick="window.location.href='/calculator'">🧮&nbsp;&nbsp;Calculator</button>
+      <button class="home-btn custom" onclick="window.location.href='/custom'">🧩&nbsp;&nbsp;Custom Order</button>
     </div>
     """
     return page_shell("Export Clothing Business Calculator", body)
@@ -900,3 +932,262 @@ async function bestSplit(){
 loadState();
 """
     return page_shell("Order Calculator", body, script)
+
+@app.get("/custom", response_class=HTMLResponse)
+def custom_page():
+    body = """
+    <style>
+      #cartCard .item-row{grid-template-columns:1fr 90px 90px 160px;}
+      #cartCard .season-header{grid-template-columns:1fr 90px 90px 160px;}
+    </style>
+    <div class="topbar">
+      <button class="alt small" onclick="goHome()">&larr; Home</button>
+      <h1>Custom Order</h1>
+      <div class="right">
+        <button class="success" id="modeBtn" onclick="togglePriceMode()"></button>
+        <button class="purple" id="curBtn" onclick="toggleCurrency()"></button>
+      </div>
+    </div>
+    <div class="mode-banner" id="modeBanner"></div>
+    <div class="note" style="margin:0 20px 10px 20px;">Items added here are temporary — they are not saved to your Configuration catalog and reset if you leave this page.</div>
+
+    <div class="main-row">
+      <div class="cart-card" id="cartCard"></div>
+      <div class="result-card">
+        <h3>&#128176; Order Summary</h3>
+        <pre class="output" id="resultBox">Add items, set quantities, and press Calculate.</pre>
+      </div>
+    </div>
+
+    <div class="center-btns">
+      <button class="success" onclick="openAddModal()">+ Add Custom Item</button>
+      <button class="success" onclick="calculate()">&#9654; Calculate</button>
+      <button class="purple" onclick="bestSplit()">&#128230; Best Split</button>
+    </div>
+    <div class="insurance-row">
+      <label><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance (0.5%-2% of declared value, official TCS range)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="platformFee" onchange="calculate()"> Include Platform Fee (Faire/FashionGo/etc., rate set in Configuration)</label>
+    </div>
+
+    <div class="card">
+      <h3>&#128230; Order Split Analysis</h3>
+      <pre class="output dim" id="splitBox">Click Calculate, then Best Split, to see the optimal way to break this order into shipments.</pre>
+    </div>
+
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <h3 id="modalTitle">Add Custom Item</h3>
+        <div class="note" id="modalNote"></div>
+        <label>Name</label><input id="f_name">
+        <label>Season</label>
+        <select id="f_season"><option>Winter</option><option>All-Year</option><option>Summer</option></select>
+        <label>Retail price (consumer)</label><input id="f_retail" type="number" step="0.01">
+        <label>Distributor price (B2B)</label><input id="f_distributor" type="number" step="0.01">
+        <label>Production cost</label><input id="f_prod" type="number" step="0.01">
+        <label>Weight (kg)</label><input id="f_weight" type="number" step="0.01">
+        <div class="actions">
+          <button class="alt" onclick="closeModal()">Cancel</button>
+          <button class="accent" onclick="saveItemModal()">Save</button>
+        </div>
+      </div>
+    </div>
+    """
+    script = """
+let STATE = null;
+let customItems = [];
+let quantities = {};
+let lastCart = null;
+
+function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
+function conv(usd){ return getCurrency() === "PKR" ? usd * STATE.settings.pkr_per_usd : usd; }
+function fmt(usd){
+  const v = conv(usd);
+  return getCurrency() === "PKR" ? "Rs " + v.toLocaleString(undefined,{maximumFractionDigits:0})
+                                  : "$" + v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function getPrice(it){ return getPriceMode() === "retail" ? it.retail : it.distributor; }
+function getSellDisplay(it, qty){
+  // No dynamic-pricing tiers exist for custom items, so dynamic mode falls back to distributor price here too (matches backend).
+  if (getPriceMode() === "dynamic") return fmt(it.distributor);
+  return fmt(getPrice(it));
+}
+
+function refreshTopButtons(){
+  document.getElementById('curBtn').innerHTML = `&#128176; ${getCurrency() === "USD" ? "USD &rarr; PKR" : "PKR &rarr; USD"}`;
+  const pm = getPriceMode();
+  const banner = document.getElementById('modeBanner');
+  if (pm === "retail"){
+    document.getElementById('modeBtn').innerHTML = `&#127991; Retail mode &rarr; Distributor`;
+    banner.innerHTML = "&#128717; RETAIL PRICING (consumer)";
+    banner.style.color = "var(--accent)";
+  } else if (pm === "distributor"){
+    document.getElementById('modeBtn').innerHTML = `&#127991; Distributor mode &rarr; Dynamic`;
+    banner.innerHTML = "&#128230; DISTRIBUTOR PRICING (B2B/wholesale)";
+    banner.style.color = "var(--success)";
+  } else {
+    document.getElementById('modeBtn').innerHTML = `&#127991; Dynamic mode &rarr; Retail`;
+    banner.innerHTML = "&#128200; DYNAMIC PRICING (no tiers for custom items — using distributor price)";
+    banner.style.color = "var(--purple)";
+  }
+}
+
+function toggleCurrency(){
+  setCurrency(getCurrency() === "USD" ? "PKR" : "USD");
+  refreshTopButtons();
+  renderCart();
+}
+function togglePriceMode(){
+  const order = ["retail","distributor","dynamic"];
+  const idx = order.indexOf(getPriceMode());
+  setPriceMode(order[(idx + 1) % order.length]);
+  refreshTopButtons();
+  renderCart();
+}
+
+async function loadState(){
+  const r = await fetch('/api/state');
+  STATE = await r.json();
+  refreshTopButtons();
+  renderCart();
+}
+
+function renderCart(){
+  const card = document.getElementById('cartCard');
+  card.innerHTML = "";
+  if (!customItems.length){
+    card.innerHTML = '<div class="note" style="margin:20px 0;">No custom items yet click "+ Add Custom Item" to start.</div>';
+    return;
+  }
+  const sellLabel = getPriceMode() === "dynamic" ? "Price/Unit" : "Selling Price";
+  const seasons = [["Winter","&#10052;"], ["All-Year","&#127772;"], ["Summer","&#9728;"]];
+  seasons.forEach(([season, icon]) => {
+    const items = customItems.filter(i => i.season === season);
+    if (!items.length) return;
+    const h = document.createElement('div');
+    h.className = 'season-header';
+    h.innerHTML = `<span>${icon} ${season}</span><span class="col">Design Cost</span><span class="col">${sellLabel}</span><span class="col">Qty / Remove</span>`;
+    card.appendChild(h);
+    items.forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      const qty = quantities[it.name] || 0;
+      row.innerHTML = `
+        <span class="name">${it.name}</span>
+        <span class="design">${fmt(it.prod)}</span>
+        <span class="sell" id="sell_${it.name}">${getSellDisplay(it, qty)}</span>
+        <span class="qtybox">
+          <button class="alt icon-btn" onclick="changeQty('${it.name}',-1)">&minus;</button>
+          <span id="q_${it.name}">${qty}</span>
+          <button class="accent icon-btn" onclick="changeQty('${it.name}',1)">+</button>
+          <button class="danger icon-btn" onclick="removeItem('${it.name}')">&#10005;</button>
+        </span>`;
+      card.appendChild(row);
+    });
+  });
+}
+
+function changeQty(name, delta){
+  quantities[name] = Math.max(0, (quantities[name] || 0) + delta);
+  document.getElementById('q_' + name).innerText = quantities[name];
+  const it = customItems.find(i => i.name === name);
+  document.getElementById('sell_' + name).innerText = getSellDisplay(it, quantities[name]);
+}
+
+function openAddModal(){
+  document.getElementById('modalTitle').innerText = "Add Custom Item";
+  document.getElementById('modalNote').innerText = `Enter Retail/Distributor/Production price in ${getCurrency()}. Kept only for this session.`;
+  ['f_name','f_retail','f_distributor','f_prod','f_weight'].forEach(id => document.getElementById(id).value = "");
+  document.getElementById('f_season').value = "Winter";
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+
+function saveItemModal(){
+  const name = document.getElementById('f_name').value.trim();
+  if (!name){ alert("Name required"); return; }
+  if (customItems.some(i => i.name === name)){ alert("An item with this name already exists in this order."); return; }
+  let retail = parseFloat(document.getElementById('f_retail').value);
+  let distributor = parseFloat(document.getElementById('f_distributor').value);
+  let prod = parseFloat(document.getElementById('f_prod').value);
+  const weight = parseFloat(document.getElementById('f_weight').value);
+  if ([retail,distributor,prod,weight].some(isNaN)){ alert("Retail/Distributor/Prod/Weight must be numbers"); return; }
+  if (getCurrency() === "PKR"){
+    retail = retail / STATE.settings.pkr_per_usd;
+    distributor = distributor / STATE.settings.pkr_per_usd;
+    prod = prod / STATE.settings.pkr_per_usd;
+  }
+  const season = document.getElementById('f_season').value;
+  customItems.push({name, season, retail, distributor, prod, weight});
+  quantities[name] = 0;
+  closeModal();
+  renderCart();
+}
+
+function removeItem(name){
+  customItems = customItems.filter(i => i.name !== name);
+  delete quantities[name];
+  renderCart();
+}
+
+async function calculate(){
+  if (!customItems.length){ alert("Add at least one custom item first."); return; }
+  const insurance = document.getElementById('insurance').checked;
+  const platformFee = document.getElementById('platformFee').checked;
+  const r = await fetch('/api/custom_calculate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({items: customItems, quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee})
+  });
+  const d = await r.json();
+  const box = document.getElementById('resultBox');
+  if (d.error){ box.innerText = d.error; lastCart = null; return; }
+  lastCart = { items: JSON.parse(JSON.stringify(customItems)), quantities: JSON.parse(JSON.stringify(quantities)) };
+  const pm = getPriceMode();
+  const priceLabel = pm === "retail" ? "Retail" : pm === "distributor" ? "Distrib." : "Dyn/unit";
+  let out = `<span class="lbl">Shipping mode:</span> <span class="hl">${d.mode_label}</span>  <span class="lbl">(total weight ${d.total_weight.toFixed(2)}kg)</span>\\n`;
+  out += `<span class="lbl">Display currency: ${getCurrency()}   |   Price mode: ${pm}</span>\\n`;
+  out += "-".repeat(50) + "\\n";
+  out += `<span class="lbl">${"Item".padEnd(20)}${"Qty".padStart(5)}${priceLabel.padStart(12)}${"Prod".padStart(12)}</span>\\n`;
+  d.cart.forEach(c => {
+    out += `${c.name.padEnd(20)}<span class="hl">${String(c.qty).padStart(5)}</span><span class="money">${fmt(c.price).padStart(12)}</span><span class="money-dim">${fmt(c.prod).padStart(12)}</span>\\n`;
+  });
+  out += "-".repeat(50) + "\\n";
+  out += `Total revenue:          <span class="money">${fmt(d.total_revenue)}</span>\\n`;
+  out += `Total production cost:  <span class="money-dim">${fmt(d.total_prod)}</span>\\n`;
+  out += `Total duty:             <span class="money-dim">${fmt(d.duty)}</span>\\n`;
+  out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\\n`;
+  if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\\n`;
+  if (d.platform_fee_cost) out += `Platform fee:           <span class="money-dim">${fmt(d.platform_fee_cost)}</span>\\n`;
+  out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\\n`;
+  out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\\n`;
+  out += `Net profit (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.net_profit_after_tax)}</span>\\n`;
+  out += `Your share:             <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.your_share_after_tax)}</span>\\n`;
+  out += `Friend's share:         <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.friend_share_after_tax)}</span>\\n`;
+  out += "-".repeat(50) + "\\n";
+  out += `RESULT: <span class="${d.is_profit ? 'profit' : 'loss'}">${d.is_profit ? "PROFIT" : "LOSS"}</span>`;
+  box.innerHTML = out;
+  box.className = 'output';
+}
+
+async function bestSplit(){
+  if (!lastCart){ alert("Click Calculate first, then Best Split."); return; }
+  const r = await fetch('/api/custom_best_split', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({items: lastCart.items, quantities: lastCart.quantities, price_mode: getPriceMode()})
+  });
+  const d = await r.json();
+  const box = document.getElementById('splitBox');
+  if (d.error){ box.innerText = d.error; return; }
+  const totalQty = d.shipments.reduce((a,b)=>a+b,0);
+  let out = "";
+  if (d.shipments.length === 1) out += `Ship all ${totalQty} units in ONE shipment.\\n\\n`;
+  else out += `Split ${totalQty} units into ${d.shipments.length} shipments:\\n  ${d.shipments.join(' + ')}\\n\\n`;
+  out += `One-shipment cost (duty+ship): ${fmt(d.one_shipment_cost)}\\n`;
+  out += `Best-split cost (duty+ship):   ${fmt(d.best_cost)}\\n`;
+  out += d.savings > 0.01 ? `\\nSaves ${fmt(d.savings)} vs one shipment` : "\\nOne shipment is already optimal.";
+  box.innerText = out;
+  box.className = d.savings > 0.01 ? 'output profit' : 'output dim';
+}
+
+loadState();
+"""
+    return page_shell("Custom Order", body, script)
