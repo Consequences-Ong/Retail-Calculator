@@ -157,10 +157,7 @@ def compute_shipment_cost(cart_items, settings, mode):
     total_weight = sum(it["weight"] * q for it, q in cart_items)
     shipping_usd = get_shipping_cost(total_weight, settings["pkr_per_usd"])
     is_batch = total_weight > 2.0
-    if is_batch:
-        duty_usd = sum(settings["duty_rate"] * settings["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
-    else:
-        duty_usd = sum(settings["duty_rate"] * get_price(it, mode, q) * q for it, q in cart_items)
+    duty_usd = sum(settings["duty_rate"] * get_price(it, mode, q) * q for it, q in cart_items)
     return duty_usd, shipping_usd, is_batch, total_weight
 
 def optimal_split_single_item(item, qty, settings, mode):
@@ -317,10 +314,9 @@ def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_
     shipping_cost = get_shipping_cost(total_weight, s["pkr_per_usd"])
     is_batch = total_weight > 2.0
 
-    if is_batch:
-        duty = sum(s["duty_rate"] * s["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
-        declared_value = sum(s["transfer_multiplier"] * it["prod"] * q for it, q in cart_items)
-        mode_label = "BATCH"
+    duty = sum(s["duty_rate"] * get_price(it, price_mode, q) * q for it, q in cart_items)
+    declared_value = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
+    mode_label = "BATCH" if is_batch else "INDIVIDUAL"
     else:
         duty = sum(s["duty_rate"] * get_price(it, price_mode, q) * q for it, q in cart_items)
         declared_value = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
