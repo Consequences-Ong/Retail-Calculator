@@ -476,6 +476,7 @@ function setCurrency(v){ localStorage.setItem('rc_currency', v); }
 function getPriceMode(){ return localStorage.getItem('rc_price_mode') || 'retail'; }
 function setPriceMode(v){ localStorage.setItem('rc_price_mode', v); }
 function goHome(){ window.location.href = '/'; }
+function jsEscape(str){ return String(str).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'"); }
 """
 
 def page_shell(title, body, extra_script=""):
@@ -855,9 +856,9 @@ function renderCart(){
         <span class="design">${fmt(it.prod)}</span>
         <span class="sell" id="sell_${it.name}">${getSellDisplay(it, qty)}</span>
         <span class="qtybox">
-          <button class="alt icon-btn" onclick="changeQty('${it.name}',-1)">&minus;</button>
+          <button class="alt icon-btn" onclick="changeQty('${jsEscape(it.name)}',-1)">&minus;</button>
           <span id="q_${it.name}">${qty}</span>
-          <button class="accent icon-btn" onclick="changeQty('${it.name}',1)">+</button>
+          <button class="accent icon-btn" onclick="changeQty('${jsEscape(it.name)}',1)">+</button>
         </span>`;
       card.appendChild(row);
     });
@@ -1076,10 +1077,10 @@ function renderCart(){
         <span class="design">${fmt(it.prod)}</span>
         <span class="sell" id="sell_${it.name}">${getSellDisplay(it, qty)}</span>
         <span class="qtybox">
-          <button class="alt icon-btn" onclick="changeQty('${it.name}',-1)">&minus;</button>
+          <button class="alt icon-btn" onclick="changeQty('${jsEscape(it.name)}',-1)">&minus;</button>
           <span id="q_${it.name}">${qty}</span>
-          <button class="accent icon-btn" onclick="changeQty('${it.name}',1)">+</button>
-          <button class="danger icon-btn" onclick="removeItem('${it.name}')">&#10005;</button>
+          <button class="accent icon-btn" onclick="changeQty('${jsEscape(it.name)}',1)">+</button>
+          <button class="danger icon-btn" onclick="removeItem('${jsEscape(it.name)}')">&#10005;</button>
         </span>`;
       card.appendChild(row);
     });
