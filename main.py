@@ -317,10 +317,6 @@ def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_
     duty = sum(s["duty_rate"] * get_price(it, price_mode, q) * q for it, q in cart_items)
     declared_value = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
     mode_label = "BATCH" if is_batch else "INDIVIDUAL"
-    else:
-        duty = sum(s["duty_rate"] * get_price(it, price_mode, q) * q for it, q in cart_items)
-        declared_value = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
-        mode_label = "INDIVIDUAL"
 
     insurance_cost = declared_value * s["insurance_rate"] if insurance_enabled else 0.0
     platform_fee_cost = total_revenue * s["platform_fee_rate"] if platform_fee_enabled else 0.0
