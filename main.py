@@ -40,6 +40,8 @@ DEFAULT_SETTINGS = {
     "pkr_per_usd": 277.6,
     "insurance_rate": 0.0125,
     "platform_fee_rate": 0.15,
+    "dispute_reserve_rate": 0.05,
+    "paypal_fee_rate": 0.029,
 }
 SHIPPING_TIERS_PKR = [
     (0.5, 12262), (1, 12262), (1.5, 17376), (2, 17376),
@@ -222,6 +224,8 @@ class SettingsIn(BaseModel):
     pkr_per_usd: Optional[float] = None
     insurance_rate: Optional[float] = None
     platform_fee_rate: Optional[float] = None
+    dispute_reserve_rate: Optional[float] = None
+    paypal_fee_rate: Optional[float] = None
 
 class ItemIn(BaseModel):
     name: str
@@ -248,6 +252,8 @@ class CalcIn(BaseModel):
     price_mode: str = "retail"
     insurance_enabled: bool = False
     platform_fee_enabled: bool = False
+    dispute_reserve_enabled: bool = False
+    paypal_fee_enabled: bool = False
 
 class CustomCalcIn(BaseModel):
     items: List[ItemIn]
@@ -255,6 +261,8 @@ class CustomCalcIn(BaseModel):
     price_mode: str = "retail"
     insurance_enabled: bool = False
     platform_fee_enabled: bool = False
+    dispute_reserve_enabled: bool = False
+    paypal_fee_enabled: bool = False
 
 # ---------------------------------------------------------------
 # API routes
@@ -303,7 +311,7 @@ def build_cart(quantities: Dict[str, int]):
             cart.append((items_by_name[name], qty))
     return cart
 
-def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_fee_enabled):
+def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_fee_enabled, dispute_reserve_enabled, paypal_fee_enabled):
     s = settings
     if not cart_items:
         return {"error": "No items selected."}
@@ -320,8 +328,10 @@ def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_
 
     insurance_cost = declared_value * s["insurance_rate"] if insurance_enabled else 0.0
     platform_fee_cost = total_revenue * s["platform_fee_rate"] if platform_fee_enabled else 0.0
+    dispute_reserve_cost = total_revenue * s["dispute_reserve_rate"] if dispute_reserve_enabled else 0.0
+    paypal_fee_cost = total_revenue * s["paypal_fee_rate"] if paypal_fee_enabled else 0.0
     landed_cost = total_prod + duty + shipping_cost + insurance_cost
-    gross_margin = total_revenue - landed_cost - platform_fee_cost
+    gross_margin = total_revenue - landed_cost - platform_fee_cost - dispute_reserve_cost - paypal_fee_cost
     net_after_remit = gross_margin * (1 - s["remit_loss"])
     net_profit_after_tax = net_after_remit * (1 - s["tax_rate"]) if net_after_remit > 0 else net_after_remit
     your_share_after_tax = net_profit_after_tax * s["split"]
@@ -336,6 +346,8 @@ def run_calculate(cart_items, settings, price_mode, insurance_enabled, platform_
         "shipping_cost": shipping_cost,
         "insurance_cost": insurance_cost,
         "platform_fee_cost": platform_fee_cost,
+        "dispute_reserve_cost": dispute_reserve_cost,
+        "paypal_fee_cost": paypal_fee_cost,
         "landed_cost": landed_cost,
         "gross_margin": gross_margin,
         "net_profit_after_tax": net_profit_after_tax,
@@ -356,12 +368,12 @@ def build_custom_cart(items: List[ItemIn], quantities: Dict[str, int]):
 @app.post("/api/calculate")
 def calculate(body: CalcIn):
     cart_items = build_cart(body.quantities)
-    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled)
+    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled, body.dispute_reserve_enabled, body.paypal_fee_enabled)
 
 @app.post("/api/custom_calculate")
 def custom_calculate(body: CustomCalcIn):
     cart_items = build_custom_cart(body.items, body.quantities)
-    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled)
+    return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled, body.dispute_reserve_enabled, body.paypal_fee_enabled)
 def run_best_split(cart_items, settings, price_mode):
     if not cart_items:
         return {"error": "No items selected."}
@@ -569,6 +581,8 @@ const SETTINGS_LABELS = {
   pkr_per_usd: "PKR per USD rate",
   insurance_rate: "TCS insurance rate (0-1, official range 0.005-0.02)",
   platform_fee_rate: "Platform commission rate (0-1, e.g. Faire/FashionGo)",
+  dispute_reserve_rate: "Dispute/refund/chargeback reserve rate (0-1, e.g. 0.03-0.08)",
+  paypal_fee_rate: "PayPal Goods & Services fee rate (0-1, e.g. 0.029)",
 };
 
 function sym(){ return getCurrency() === "PKR" ? "Rs" : "$"; }
@@ -729,6 +743,8 @@ def calculator_page():
      <div class="insurance-row">
       <label><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance (0.5%-2% of declared value, official TCS range)</label>
       <label style="margin-left:18px;"><input type="checkbox" id="platformFee" onchange="calculate()"> Include Platform Fee (Faire/FashionGo/etc., rate set in Configuration)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="disputeReserve" onchange="calculate()"> Include Dispute/Refund Reserve (rate set in Configuration)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="paypalFee" onchange="calculate()"> Include PayPal G&S Fee (rate set in Configuration)</label>
     </div>
 
     <div class="card">
@@ -867,9 +883,11 @@ function changeQty(name, delta){
 async function calculate(){
   const insurance = document.getElementById('insurance').checked;
   const platformFee = document.getElementById('platformFee').checked;
+  const disputeReserve = document.getElementById('disputeReserve').checked;
+  const paypalFee = document.getElementById('paypalFee').checked;
   const r = await fetch('/api/calculate', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee})
+    body: JSON.stringify({quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee, dispute_reserve_enabled: disputeReserve, paypal_fee_enabled: paypalFee})
   });
   const d = await r.json();
   const box = document.getElementById('resultBox');
@@ -891,6 +909,8 @@ async function calculate(){
   out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\\n`;
   if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\\n`;
   if (d.platform_fee_cost) out += `Platform fee:           <span class="money-dim">${fmt(d.platform_fee_cost)}</span>\\n`;
+  if (d.dispute_reserve_cost) out += `Dispute/refund reserve: <span class="money-dim">${fmt(d.dispute_reserve_cost)}</span>\\n`;
+  if (d.paypal_fee_cost) out += `PayPal fee:             <span class="money-dim">${fmt(d.paypal_fee_cost)}</span>\\n`;
   out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\\n`;
   out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\\n`;
   out += `Net profit (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.net_profit_after_tax)}</span>\\n`;
@@ -960,6 +980,8 @@ def custom_page():
     <div class="insurance-row">
       <label><input type="checkbox" id="insurance" onchange="calculate()"> Include TCS Insurance (0.5%-2% of declared value, official TCS range)</label>
       <label style="margin-left:18px;"><input type="checkbox" id="platformFee" onchange="calculate()"> Include Platform Fee (Faire/FashionGo/etc., rate set in Configuration)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="disputeReserve" onchange="calculate()"> Include Dispute/Refund Reserve (rate set in Configuration)</label>
+      <label style="margin-left:18px;"><input type="checkbox" id="paypalFee" onchange="calculate()"> Include PayPal G&S Fee (rate set in Configuration)</label>
     </div>
 
     <div class="card">
@@ -1126,9 +1148,11 @@ async function calculate(){
   if (!customItems.length){ alert("Add at least one custom item first."); return; }
   const insurance = document.getElementById('insurance').checked;
   const platformFee = document.getElementById('platformFee').checked;
+  const disputeReserve = document.getElementById('disputeReserve').checked;
+  const paypalFee = document.getElementById('paypalFee').checked;
   const r = await fetch('/api/custom_calculate', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({items: customItems, quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee})
+    body: JSON.stringify({items: customItems, quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee, dispute_reserve_enabled: disputeReserve, paypal_fee_enabled: paypalFee})
   });
   const d = await r.json();
   const box = document.getElementById('resultBox');
@@ -1150,6 +1174,8 @@ async function calculate(){
   out += `Total shipping cost:    <span class="money-dim">${fmt(d.shipping_cost)}</span>\\n`;
   if (d.insurance_cost) out += `Insurance cost:         <span class="money-dim">${fmt(d.insurance_cost)}</span>\\n`;
   if (d.platform_fee_cost) out += `Platform fee:           <span class="money-dim">${fmt(d.platform_fee_cost)}</span>\\n`;
+  if (d.dispute_reserve_cost) out += `Dispute/refund reserve: <span class="money-dim">${fmt(d.dispute_reserve_cost)}</span>\\n`;
+  if (d.paypal_fee_cost) out += `PayPal fee:             <span class="money-dim">${fmt(d.paypal_fee_cost)}</span>\\n`;
   out += `Landed cost:            <span class="hl">${fmt(d.landed_cost)}</span>\\n`;
   out += `Gross margin:           <span class="${d.gross_margin >= 0 ? 'profit' : 'loss'}">${fmt(d.gross_margin)}</span>\\n`;
   out += `Net profit (after remittance loss & export tax): <span class="${d.is_profit ? 'profit' : 'loss'}">${fmt(d.net_profit_after_tax)}</span>\\n`;
