@@ -121,8 +121,8 @@ def load_state():
     cur.close()
     conn.close()
     items = rows.get("items") or [dict(i) for i in DEFAULT_ITEMS]
-    settings = rows.get("settings") or dict(DEFAULT_SETTINGS)
-    if not rows:
+    settings = {**DEFAULT_SETTINGS, **(rows.get("settings") or {})}
+    if not rows or "settings" not in rows or settings != rows.get("settings"):
         persist("items", items)
         persist("settings", settings)
     return {"items": items, "settings": settings}
