@@ -980,18 +980,18 @@ async function bestSplit(){
   if (d.error){ box.innerText = d.error; return; }
   let out = "";
   if (d.shipments.length === 1){
-    out += `Ship all units in ONE shipment.\n\n`;
+    out += `Ship all units in ONE shipment.\\n\\n`;
   } else {
-    out += `Split into ${d.shipments.length} shipments:\n`;
+    out += `Split into ${d.shipments.length} shipments:\\n`;
     d.shipments.forEach((shp, i) => {
       const line = shp.map(x => `${x.qty}x ${x.name}`).join(', ');
-      out += `  Shipment ${i+1}: ${line}\n`;
+      out += `  Shipment ${i+1}: ${line}\\n`;
     });
-    out += "\n";
+    out += "\\n";
   }
-  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\n`;
-  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\n`;
-  out += d.share_gain > 0.01 ? `\nBest split earns you ${fmt(d.share_gain)} more` : "\nOne shipment is already optimal.";
+  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\\n`;
+  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\\n`;
+  out += d.share_gain > 0.01 ? `\\nBest split earns you ${fmt(d.share_gain)} more` : "\\nOne shipment is already optimal.";
   box.innerText = out;
   box.className = d.share_gain > 0.01 ? 'output profit' : 'output dim';
 }
@@ -1256,18 +1256,18 @@ async function bestSplit(){
   if (d.error){ box.innerText = d.error; return; }
   let out = "";
   if (d.shipments.length === 1){
-    out += `Ship all units in ONE shipment.\n\n`;
+    out += `Ship all units in ONE shipment.\\n\\n`;
   } else {
-    out += `Split into ${d.shipments.length} shipments:\n`;
+    out += `Split into ${d.shipments.length} shipments:\\n`;
     d.shipments.forEach((shp, i) => {
       const line = shp.map(x => `${x.qty}x ${x.name}`).join(', ');
-      out += `  Shipment ${i+1}: ${line}\n`;
+      out += `  Shipment ${i+1}: ${line}\\n`;
     });
-    out += "\n";
+    out += "\\n";
   }
-  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\n`;
-  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\n`;
-  out += d.share_gain > 0.01 ? `\nBest split earns you ${fmt(d.share_gain)} more` : "\nOne shipment is already optimal.";
+  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\\n`;
+  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\\n`;
+  out += d.share_gain > 0.01 ? `\\nBest split earns you ${fmt(d.share_gain)} more` : "\\nOne shipment is already optimal.";
   box.innerText = out;
   box.className = d.share_gain > 0.01 ? 'output profit' : 'output dim';
 }
