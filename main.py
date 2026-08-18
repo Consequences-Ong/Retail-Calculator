@@ -181,7 +181,9 @@ def optimal_split_single_item(item, qty, settings, mode):
         j = choice[remaining]
         shipments.append(j)
         remaining -= j
-    return sorted(shipments, reverse=True), dp[qty]
+    shipments = sorted(shipments, reverse=True)
+    detailed = [[{"name": item["name"], "qty": j}] for j in shipments]
+    return detailed, dp[qty]
 
 def best_proportional_split(cart_items, settings, mode, max_shipments=10):
     total_qty = sum(q for _, q in cart_items)
@@ -203,7 +205,10 @@ def best_proportional_split(cart_items, settings, mode, max_shipments=10):
             total_cost += duty + shipping
         if best_cost is None or total_cost < best_cost:
             best_cost = total_cost
-            best_plan = [sum(q for _, q in shp) for shp in shipments if shp]
+            best_plan = [
+                [{"name": it["name"], "qty": q} for it, q in shp]
+                for shp in shipments if shp
+            ]
     return best_plan, best_cost
 
 def find_best_shipping_plan(cart_items, settings, mode, max_shipments=10):
@@ -211,6 +216,16 @@ def find_best_shipping_plan(cart_items, settings, mode, max_shipments=10):
         item, qty = cart_items[0]
         return optimal_split_single_item(item, qty, settings, mode)
     return best_proportional_split(cart_items, settings, mode, max_shipments)
+
+def compute_share_from_cost(total_revenue, total_prod, ship_cost, settings,
+                             insurance_cost=0.0, platform_fee_cost=0.0,
+                             dispute_reserve_cost=0.0, paypal_fee_cost=0.0):
+    landed_cost = total_prod + ship_cost + insurance_cost
+    gross_margin = total_revenue - landed_cost - platform_fee_cost - dispute_reserve_cost - paypal_fee_cost
+    net_after_remit = gross_margin * (1 - settings["remit_loss"])
+    net_profit_after_tax = net_after_remit * (1 - settings["tax_rate"]) if net_after_remit > 0 else net_after_remit
+    your_share = net_profit_after_tax * settings["split"]
+    return net_profit_after_tax, your_share
 
 # ---------------------------------------------------------------
 # API models
@@ -374,28 +389,56 @@ def calculate(body: CalcIn):
 def custom_calculate(body: CustomCalcIn):
     cart_items = build_custom_cart(body.items, body.quantities)
     return run_calculate(cart_items, STATE["settings"], body.price_mode, body.insurance_enabled, body.platform_fee_enabled, body.dispute_reserve_enabled, body.paypal_fee_enabled)
-def run_best_split(cart_items, settings, price_mode):
+def run_best_split(cart_items, settings, price_mode, insurance_enabled=False,
+                    platform_fee_enabled=False, dispute_reserve_enabled=False,
+                    paypal_fee_enabled=False):
     if not cart_items:
         return {"error": "No items selected."}
-    shipments, best_cost = find_best_shipping_plan(cart_items, settings, price_mode)
+    shipments, best_ship_cost = find_best_shipping_plan(cart_items, settings, price_mode)
     duty, shipping, _, _ = compute_shipment_cost(cart_items, settings, price_mode)
-    one_shipment_cost = duty + shipping
+    one_ship_cost = duty + shipping
+
+    total_revenue = sum(get_price(it, price_mode, q) * q for it, q in cart_items)
+    total_prod = sum(it["prod"] * q for it, q in cart_items)
+    declared_value = total_revenue
+
+    insurance_cost = declared_value * settings["insurance_rate"] if insurance_enabled else 0.0
+    platform_fee_cost = total_revenue * settings["platform_fee_rate"] if platform_fee_enabled else 0.0
+    dispute_reserve_cost = total_revenue * settings["dispute_reserve_rate"] if dispute_reserve_enabled else 0.0
+    paypal_fee_cost = total_revenue * settings["paypal_fee_rate"] if paypal_fee_enabled else 0.0
+
+    one_net_profit, one_your_share = compute_share_from_cost(
+        total_revenue, total_prod, one_ship_cost, settings,
+        insurance_cost, platform_fee_cost, dispute_reserve_cost, paypal_fee_cost)
+    best_net_profit, best_your_share = compute_share_from_cost(
+        total_revenue, total_prod, best_ship_cost, settings,
+        insurance_cost, platform_fee_cost, dispute_reserve_cost, paypal_fee_cost)
+
     return {
         "shipments": shipments,
-        "best_cost": best_cost,
-        "one_shipment_cost": one_shipment_cost,
-        "savings": one_shipment_cost - best_cost,
+        "best_cost": best_ship_cost,
+        "one_shipment_cost": one_ship_cost,
+        "savings": one_ship_cost - best_ship_cost,
+        "one_shipment_net_profit": one_net_profit,
+        "best_split_net_profit": best_net_profit,
+        "one_shipment_your_share": one_your_share,
+        "best_split_your_share": best_your_share,
+        "share_gain": best_your_share - one_your_share,
     }
 
 @app.post("/api/best_split")
 def best_split(body: CalcIn):
     cart_items = build_cart(body.quantities)
-    return run_best_split(cart_items, STATE["settings"], body.price_mode)
+    return run_best_split(cart_items, STATE["settings"], body.price_mode,
+                           body.insurance_enabled, body.platform_fee_enabled,
+                           body.dispute_reserve_enabled, body.paypal_fee_enabled)
 
 @app.post("/api/custom_best_split")
 def custom_best_split(body: CustomCalcIn):
     cart_items = build_custom_cart(body.items, body.quantities)
-    return run_best_split(cart_items, STATE["settings"], body.price_mode)
+    return run_best_split(cart_items, STATE["settings"], body.price_mode,
+                           body.insurance_enabled, body.platform_fee_enabled,
+                           body.dispute_reserve_enabled, body.paypal_fee_enabled)
 
 # ---------------------------------------------------------------
 # SHARED CSS (mirrors the Tkinter COLORS/FONT palette exactly)
@@ -924,22 +967,33 @@ async function calculate(){
 
 async function bestSplit(){
   if (!lastCartQuantities){ alert("Click Calculate first, then Best Split."); return; }
+  const insurance = document.getElementById('insurance').checked;
+  const platformFee = document.getElementById('platformFee').checked;
+  const disputeReserve = document.getElementById('disputeReserve').checked;
+  const paypalFee = document.getElementById('paypalFee').checked;
   const r = await fetch('/api/best_split', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({quantities: lastCartQuantities, price_mode: getPriceMode()})
+    body: JSON.stringify({quantities: lastCartQuantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee, dispute_reserve_enabled: disputeReserve, paypal_fee_enabled: paypalFee})
   });
   const d = await r.json();
   const box = document.getElementById('splitBox');
   if (d.error){ box.innerText = d.error; return; }
-  const totalQty = d.shipments.reduce((a,b)=>a+b,0);
   let out = "";
-  if (d.shipments.length === 1) out += `Ship all ${totalQty} units in ONE shipment.\\n\\n`;
-  else out += `Split ${totalQty} units into ${d.shipments.length} shipments:\\n  ${d.shipments.join(' + ')}\\n\\n`;
-  out += `One-shipment cost (duty+ship): ${fmt(d.one_shipment_cost)}\\n`;
-  out += `Best-split cost (duty+ship):   ${fmt(d.best_cost)}\\n`;
-  out += d.savings > 0.01 ? `\\nSaves ${fmt(d.savings)} vs one shipment` : "\\nOne shipment is already optimal.";
+  if (d.shipments.length === 1){
+    out += `Ship all units in ONE shipment.\n\n`;
+  } else {
+    out += `Split into ${d.shipments.length} shipments:\n`;
+    d.shipments.forEach((shp, i) => {
+      const line = shp.map(x => `${x.qty}x ${x.name}`).join(', ');
+      out += `  Shipment ${i+1}: ${line}\n`;
+    });
+    out += "\n";
+  }
+  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\n`;
+  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\n`;
+  out += d.share_gain > 0.01 ? `\nBest split earns you ${fmt(d.share_gain)} more` : "\nOne shipment is already optimal.";
   box.innerText = out;
-  box.className = d.savings > 0.01 ? 'output profit' : 'output dim';
+  box.className = d.share_gain > 0.01 ? 'output profit' : 'output dim';
 }
 
 loadState();
@@ -1189,22 +1243,33 @@ async function calculate(){
 
 async function bestSplit(){
   if (!lastCart){ alert("Click Calculate first, then Best Split."); return; }
+  const insurance = document.getElementById('insurance').checked;
+  const platformFee = document.getElementById('platformFee').checked;
+  const disputeReserve = document.getElementById('disputeReserve').checked;
+  const paypalFee = document.getElementById('paypalFee').checked;
   const r = await fetch('/api/custom_best_split', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({items: lastCart.items, quantities: lastCart.quantities, price_mode: getPriceMode()})
+    body: JSON.stringify({items: lastCart.items, quantities: lastCart.quantities, price_mode: getPriceMode(), insurance_enabled: insurance, platform_fee_enabled: platformFee, dispute_reserve_enabled: disputeReserve, paypal_fee_enabled: paypalFee})
   });
   const d = await r.json();
   const box = document.getElementById('splitBox');
   if (d.error){ box.innerText = d.error; return; }
-  const totalQty = d.shipments.reduce((a,b)=>a+b,0);
   let out = "";
-  if (d.shipments.length === 1) out += `Ship all ${totalQty} units in ONE shipment.\\n\\n`;
-  else out += `Split ${totalQty} units into ${d.shipments.length} shipments:\\n  ${d.shipments.join(' + ')}\\n\\n`;
-  out += `One-shipment cost (duty+ship): ${fmt(d.one_shipment_cost)}\\n`;
-  out += `Best-split cost (duty+ship):   ${fmt(d.best_cost)}\\n`;
-  out += d.savings > 0.01 ? `\\nSaves ${fmt(d.savings)} vs one shipment` : "\\nOne shipment is already optimal.";
+  if (d.shipments.length === 1){
+    out += `Ship all units in ONE shipment.\n\n`;
+  } else {
+    out += `Split into ${d.shipments.length} shipments:\n`;
+    d.shipments.forEach((shp, i) => {
+      const line = shp.map(x => `${x.qty}x ${x.name}`).join(', ');
+      out += `  Shipment ${i+1}: ${line}\n`;
+    });
+    out += "\n";
+  }
+  out += `Your share (one shipment):   ${fmt(d.one_shipment_your_share)}\n`;
+  out += `Your share (best split):     ${fmt(d.best_split_your_share)}\n`;
+  out += d.share_gain > 0.01 ? `\nBest split earns you ${fmt(d.share_gain)} more` : "\nOne shipment is already optimal.";
   box.innerText = out;
-  box.className = d.savings > 0.01 ? 'output profit' : 'output dim';
+  box.className = d.share_gain > 0.01 ? 'output profit' : 'output dim';
 }
 
 loadState();
